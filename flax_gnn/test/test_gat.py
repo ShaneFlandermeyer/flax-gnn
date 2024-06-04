@@ -6,7 +6,7 @@ import jax
 import optax
 from flax_gnn.test.util import get_ground_truth_assignments_for_zacharys_karate_club, get_zacharys_karate_club
 import jax.numpy as jnp
-from flax_gnn.layers.gcn import GCNConv
+from flax_gnn.layers.gat import GATv2Conv
 
 
 def test_gcn():
@@ -14,10 +14,10 @@ def test_gcn():
 
     @nn.compact
     def __call__(self, graph: jraph.GraphsTuple) -> jraph.GraphsTuple:
-      graph = GCNConv(embed_dim=8, add_self_edges=True)(graph)
+      graph = GATv2Conv(embed_dim=8, num_heads=1, add_self_edges=True)(graph)
       graph = jraph.GraphMapFeatures(embed_node_fn=nn.relu)(graph)
 
-      graph = GCNConv(embed_dim=2)(graph)
+      graph = GATv2Conv(embed_dim=2, num_heads=1)(graph)
 
       return graph
 
@@ -56,7 +56,6 @@ def test_gcn():
 
     for i in range(num_steps):
       params, opt_state = update(params, opt_state)
-
     return predict(params), accuracy(params).item()
 
   model = Model()

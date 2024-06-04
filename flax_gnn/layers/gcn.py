@@ -3,7 +3,7 @@ import flax.linen as nn
 import jax
 
 
-class GCN(nn.Module):
+class GCNConv(nn.Module):
   embed_dim: int
   add_self_edges: bool = False
   normalize: bool = True
