@@ -22,11 +22,11 @@ class GATv2Conv(nn.Module):
     def _attention_query_fn(sender_attr: jnp.ndarray,
                             receiver_attr: jnp.ndarray) -> jnp.ndarray:
       head_dim = self.embed_dim // self.num_heads
-      W_i = nn.DenseGeneral(features=(self.num_heads, head_dim))
-      W_j = nn.DenseGeneral(features=(self.num_heads, head_dim))
+      W_s = nn.DenseGeneral(features=(self.num_heads, head_dim))
+      W_r = nn.DenseGeneral(features=(self.num_heads, head_dim))
 
-      sender_attr = W_i(sender_attr)
-      receiver_attr = W_j(receiver_attr)
+      sender_attr = W_s(sender_attr)
+      receiver_attr = W_r(receiver_attr)
       return sender_attr, receiver_attr
 
     def _attention_logit_fn(sender_attr: jnp.ndarray,
@@ -39,8 +39,9 @@ class GATv2Conv(nn.Module):
       return x
 
     def _node_update_fn(node: jnp.ndarray) -> jnp.ndarray:
+      x = rearrange(node, '... h d -> ... (h d)')
 
-      return rearrange(node, '... h d -> ... (h d)')
+      return x
 
     graph = GATv2(
         attention_query_fn=_attention_query_fn,
