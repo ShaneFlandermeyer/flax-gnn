@@ -7,6 +7,7 @@ import jax
 def add_self_edges_fn(receivers: jnp.ndarray, senders: jnp.ndarray,
                       total_num_nodes: int) -> Tuple[jnp.ndarray, jnp.ndarray]:
   """Adds self edges. Assumes self edges are not in the graph yet."""
+  # TODO: This does not add edge features for self edges, which might cause shape problems.
   receivers = jnp.concatenate((receivers, jnp.arange(total_num_nodes)), axis=0)
   senders = jnp.concatenate((senders, jnp.arange(total_num_nodes)), axis=0)
   return receivers, senders

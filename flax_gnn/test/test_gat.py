@@ -6,7 +6,7 @@ import jax
 import optax
 from flax_gnn.test.util import get_ground_truth_assignments_for_zacharys_karate_club, get_zacharys_karate_club
 import jax.numpy as jnp
-from flax_gnn.layers.gat import GATv2Conv
+from flax_gnn.layers.gat import GATv2
 
 
 def test_gcn():
@@ -14,10 +14,10 @@ def test_gcn():
 
     @nn.compact
     def __call__(self, graph: jraph.GraphsTuple) -> jraph.GraphsTuple:
-      graph = GATv2Conv(embed_dim=8, num_heads=1, add_self_edges=True)(graph)
+      graph = GATv2(embed_dim=10, num_heads=1, add_self_edges=True)(graph)
       graph = jraph.GraphMapFeatures(embed_node_fn=nn.relu)(graph)
 
-      graph = GATv2Conv(embed_dim=2, num_heads=1)(graph)
+      graph = GATv2(embed_dim=2, num_heads=1)(graph)
 
       return graph
 
@@ -54,8 +54,10 @@ def test_gcn():
       decoded_graph = network.apply(params, karate_club)
       return jnp.mean(jnp.argmax(decoded_graph.nodes, axis=1) == labels)
 
+    start = time.time()
     for i in range(num_steps):
       params, opt_state = update(params, opt_state)
+    print("Training time: ", time.time() - start)
     return predict(params), accuracy(params).item()
 
   model = Model()
