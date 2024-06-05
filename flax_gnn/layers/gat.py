@@ -16,7 +16,7 @@ class GATv2(nn.Module):
   The implementation is based on the appendix in Battaglia et al. (2018) "Relational inductive biases, deep learning, and graph networks".
 
   Specifically, attention messages are computed as edge features (the original edge features are discarded). The aggregated messages are then used to update the node features.
-  
+
   NOTE: Global features are currently not used, but there are hooks to include them!
   """
   embed_dim: int
@@ -32,36 +32,45 @@ class GATv2(nn.Module):
     W_s = nn.DenseGeneral(features=(self.num_heads, head_dim))
     W_r = nn.DenseGeneral(features=(self.num_heads, head_dim))
 
-    def _update_edge_fn(edges, sent_attributes, received_attributes,
-                        global_edge_attributes):
+    def update_edge_fn(edges: jnp.ndarray,
+                       sent_attributes: jnp.ndarray,
+                       received_attributes: jnp.ndarray,
+                       global_edge_attributes: jnp.ndarray) -> jnp.ndarray:
       del edges, received_attributes, global_edge_attributes
 
       edges = W_s(sent_attributes)
       return edges
 
-    def _attention_logit_fn(edges, sent_attributes, received_attributes,
-                            global_edge_attributes) -> jnp.ndarray:
+    def attention_logit_fn(edges: jnp.ndarray,
+                           sent_attributes: jnp.ndarray,
+                           received_attributes: jnp.ndarray,
+                           global_edge_attributes: jnp.ndarray) -> jnp.ndarray:
       del sent_attributes, global_edge_attributes
       # GATv2 update rule
       # Sent attribute embeddings live in the edge features, so we don't need to recompute them here
-      x = mish(edges + W_r(received_attributes))
+      sent_attributes = edges
+      received_attributes = W_r(received_attributes)
+      x = mish(sent_attributes + received_attributes)
       x = nn.Dense(1)(x)
       return x
 
-    def _attention_reduce_fn(edges, weights):
+    def attention_reduce_fn(edges: jnp.ndarray,
+                            weights: jnp.ndarray) -> jnp.ndarray:
       return edges * weights
 
-    def _node_update_fn(nodes, sent_attributes,
-                        received_attributes, global_attributes) -> jnp.ndarray:
-      del sent_attributes, global_attributes
+    def node_update_fn(nodes: jnp.ndarray,
+                       sent_attributes: jnp.ndarray,
+                       received_attributes: jnp.ndarray,
+                       global_attributes: jnp.ndarray) -> jnp.ndarray:
+      del nodes, sent_attributes, global_attributes
       nodes = rearrange(received_attributes, '... h d -> ... (h d)')
       return nodes
 
     graph = jraph.GraphNetwork(
-        update_edge_fn=_update_edge_fn,
-        update_node_fn=_node_update_fn,
-        attention_logit_fn=_attention_logit_fn,
-        attention_reduce_fn=_attention_reduce_fn
+        update_edge_fn=update_edge_fn,
+        attention_logit_fn=attention_logit_fn,
+        attention_reduce_fn=attention_reduce_fn,
+        update_node_fn=node_update_fn,
     )(graph)
 
     return graph
