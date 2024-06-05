@@ -2,7 +2,6 @@ import time
 import flax.linen as nn
 import jraph
 from flax_gnn.util import add_self_edges
-# from flax_gnn.models.gat import GATv2
 import jax
 import jax.numpy as jnp
 from einops import rearrange
@@ -25,12 +24,12 @@ class GATv2(nn.Module):
 
   @nn.compact
   def __call__(self, graph: jraph.GraphsTuple) -> jraph.GraphsTuple:
-    if self.add_self_edges:
-      graph = add_self_edges(graph)
-
     head_dim = self.embed_dim // self.num_heads
     W_s = nn.DenseGeneral(features=(self.num_heads, head_dim))
     W_r = nn.DenseGeneral(features=(self.num_heads, head_dim))
+    
+    if self.add_self_edges:
+      graph = add_self_edges(graph)
 
     def update_edge_fn(edges: jnp.ndarray,
                        sent_attributes: jnp.ndarray,
