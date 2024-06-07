@@ -17,7 +17,10 @@ def add_self_edges(graph: jraph.GraphsTuple) -> jraph.GraphsTuple:
     edges = jnp.concatenate(
         (edges, jnp.zeros((total_num_nodes, *edges.shape[1:]))),
         axis=0)
-  return graph._replace(senders=senders, receivers=receivers, edges=edges)
+  return graph._replace(senders=senders,
+                        receivers=receivers,
+                        edges=edges,
+                        n_edge=graph.n_edge + total_num_nodes)
 
 
 def mish(x: jnp.ndarray) -> jnp.ndarray:

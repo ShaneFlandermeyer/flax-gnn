@@ -26,7 +26,7 @@ class GATv2(nn.Module):
     head_dim = self.embed_dim // self.num_heads
     W_s = nn.DenseGeneral(features=(self.num_heads, head_dim))
     W_r = nn.DenseGeneral(features=(self.num_heads, head_dim))
-
+    
     if self.add_self_edges:
       graph = add_self_edges(graph)
 
@@ -35,12 +35,11 @@ class GATv2(nn.Module):
                        received_attributes: jnp.ndarray,
                        global_edge_attributes: jnp.ndarray) -> jnp.ndarray:
       del edges, received_attributes
-
-      # Include global features
+      
       if global_edge_attributes is not None:
         sent_attributes = jnp.concatenate(
             [sent_attributes, global_edge_attributes], axis=-1)
-      
+
       edges = W_s(sent_attributes)
 
       return edges
@@ -50,11 +49,10 @@ class GATv2(nn.Module):
                            received_attributes: jnp.ndarray,
                            global_edge_attributes: jnp.ndarray) -> jnp.ndarray:
       del sent_attributes
-      
-      
+
       # Sent attribute embeddings encoded in edge features
       sent_attributes = edges
-      # Include global features
+      
       if global_edge_attributes is not None:
         received_attributes = jnp.concatenate(
             [received_attributes, global_edge_attributes], axis=-1)
@@ -78,10 +76,10 @@ class GATv2(nn.Module):
                        received_attributes: jnp.ndarray,
                        global_attributes: jnp.ndarray) -> jnp.ndarray:
       del nodes, sent_attributes, global_attributes
-      
+
       # Identity transformation - Node features come from the aggregated edge features of the attention mechanism
       nodes = received_attributes
-      
+
       return nodes
 
     def update_global_fn(node_attributes: jnp.ndarray,
@@ -100,7 +98,8 @@ class GATv2(nn.Module):
         update_global_fn=update_global_fn,
         attention_logit_fn=attention_logit_fn,
         attention_reduce_fn=attention_reduce_fn,
-
+        aggregate_edges_for_globals_fn=jraph.segment_mean,
+        aggregate_nodes_for_globals_fn=jraph.segment_mean,
     )
     graph = network(graph)
 
