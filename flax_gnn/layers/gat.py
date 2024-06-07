@@ -1,4 +1,5 @@
 import time
+from typing import Optional
 import flax.linen as nn
 import jraph
 from flax_gnn.util import add_self_edges
@@ -15,8 +16,6 @@ class GATv2(nn.Module):
   The implementation is based on the appendix in Battaglia et al. (2018) "Relational inductive biases, deep learning, and graph networks".
 
   Specifically, attention messages are computed as edge features (the original edge features are discarded). The aggregated messages are then used to update the node features.
-
-  NOTE: Global features are currently not used, but there are hooks to include them!
   """
   embed_dim: int
   num_heads: int
@@ -27,7 +26,7 @@ class GATv2(nn.Module):
     head_dim = self.embed_dim // self.num_heads
     W_s = nn.DenseGeneral(features=(self.num_heads, head_dim))
     W_r = nn.DenseGeneral(features=(self.num_heads, head_dim))
-    
+
     if self.add_self_edges:
       graph = add_self_edges(graph)
 
@@ -35,19 +34,32 @@ class GATv2(nn.Module):
                        sent_attributes: jnp.ndarray,
                        received_attributes: jnp.ndarray,
                        global_edge_attributes: jnp.ndarray) -> jnp.ndarray:
-      del edges, received_attributes, global_edge_attributes
+      del edges, received_attributes
 
+      # Include global features
+      if global_edge_attributes is not None:
+        sent_attributes = jnp.concatenate(
+            [sent_attributes, global_edge_attributes], axis=-1)
+      
       edges = W_s(sent_attributes)
+
       return edges
 
     def attention_logit_fn(edges: jnp.ndarray,
                            sent_attributes: jnp.ndarray,
                            received_attributes: jnp.ndarray,
                            global_edge_attributes: jnp.ndarray) -> jnp.ndarray:
-      del sent_attributes, global_edge_attributes
-      # GATv2 update rule
-      # Sent attribute embeddings live in the edge features, so we don't need to recompute them here
+      del sent_attributes
+      
+      
+      # Sent attribute embeddings encoded in edge features
       sent_attributes = edges
+      # Include global features
+      if global_edge_attributes is not None:
+        received_attributes = jnp.concatenate(
+            [received_attributes, global_edge_attributes], axis=-1)
+
+      # GATv2 update rule
       received_attributes = W_r(received_attributes)
       x = mish(sent_attributes + received_attributes)
       x = nn.Dense(1)(x)
@@ -55,22 +67,42 @@ class GATv2(nn.Module):
 
     def attention_reduce_fn(edges: jnp.ndarray,
                             weights: jnp.ndarray) -> jnp.ndarray:
-      return edges * weights
+      # Scale by softmax weights.
+      # We do not aggregate here since aggregation is done during node feature computation
+      x = edges * weights
+      x = rearrange(x, '... h d -> ... (h d)')
+      return x
 
-    def node_update_fn(nodes: jnp.ndarray,
+    def update_node_fn(nodes: jnp.ndarray,
                        sent_attributes: jnp.ndarray,
                        received_attributes: jnp.ndarray,
                        global_attributes: jnp.ndarray) -> jnp.ndarray:
       del nodes, sent_attributes, global_attributes
-      nodes = rearrange(received_attributes, '... h d -> ... (h d)')
+      
+      # Identity transformation - Node features come from the aggregated edge features of the attention mechanism
+      nodes = received_attributes
+      
       return nodes
 
-    graph = jraph.GraphNetwork(
+    def update_global_fn(node_attributes: jnp.ndarray,
+                         edge_attributes: jnp.ndarray,
+                         global_attributes: jnp.ndarray) -> jnp.ndarray:
+      if global_attributes is None:
+        return global_attributes
+
+      attributes = jnp.concatenate(
+          [node_attributes, edge_attributes, global_attributes], axis=-1)
+      return nn.Dense(self.embed_dim)(attributes)
+
+    network = jraph.GraphNetwork(
         update_edge_fn=update_edge_fn,
+        update_node_fn=update_node_fn,
+        update_global_fn=update_global_fn,
         attention_logit_fn=attention_logit_fn,
         attention_reduce_fn=attention_reduce_fn,
-        update_node_fn=node_update_fn,
-    )(graph)
+
+    )
+    graph = network(graph)
 
     return graph
 
