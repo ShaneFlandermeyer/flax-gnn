@@ -6,7 +6,7 @@ from flax_gnn.util import add_self_edges
 import jax
 import jax.numpy as jnp
 from einops import rearrange
-from flax_gnn.util import mish
+from flax_gnn.layers.activations import mish
 
 
 class GATv2(nn.Module):

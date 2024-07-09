@@ -1,5 +1,5 @@
 import jax.numpy as jnp
-from typing import Optional, Tuple
+from typing import Optional, Sequence, Tuple
 import jraph
 import jax
 
@@ -23,5 +23,16 @@ def add_self_edges(graph: jraph.GraphsTuple) -> jraph.GraphsTuple:
                         n_edge=graph.n_edge + total_num_nodes)
 
 
-def mish(x: jnp.ndarray) -> jnp.ndarray:
-  return x * jnp.tanh(jnp.log1p(jnp.exp(x)))
+def batch_graphs(graphs: Sequence[jraph.GraphsTuple],
+                 axis: int = 0
+                 ) -> jraph.GraphsTuple:
+  """Batch multiple graphs of the same shape along a given dimension."""
+  return jraph.GraphsTuple(
+      nodes=jnp.stack([g.nodes for g in graphs], axis=axis),
+      edges=jnp.stack([g.edges for g in graphs], axis=axis),
+      receivers=jnp.stack([g.receivers for g in graphs], axis=axis),
+      senders=jnp.stack([g.senders for g in graphs], axis=axis),
+      globals=jnp.stack([g.globals for g in graphs], axis=axis),
+      n_node=jnp.stack([g.n_node for g in graphs], axis=axis),
+      n_edge=jnp.stack([g.n_edge for g in graphs], axis=axis),
+  )

@@ -7,6 +7,7 @@ import optax
 from flax_gnn.test.util import get_ground_truth_assignments_for_zacharys_karate_club, get_zacharys_karate_club
 import jax.numpy as jnp
 from flax_gnn.layers.gcn import GCNConv
+import pytest
 
 
 def test_gcn():
@@ -61,9 +62,8 @@ def test_gcn():
 
   model = Model()
   club, accuracy = optimize_club(model, num_steps=15)
-  print("Accuracy: ", accuracy)
   assert accuracy > 0.9
 
 
 if __name__ == '__main__':
-  test_gcn()
+  pytest.main([__file__])
