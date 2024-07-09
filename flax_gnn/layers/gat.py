@@ -26,7 +26,7 @@ class GATv2(nn.Module):
     head_dim = self.embed_dim // self.num_heads
     W_s = nn.DenseGeneral(features=(self.num_heads, head_dim))
     W_r = nn.DenseGeneral(features=(self.num_heads, head_dim))
-    
+
     if self.add_self_edges:
       graph = add_self_edges(graph)
 
@@ -35,7 +35,7 @@ class GATv2(nn.Module):
                        received_attributes: jnp.ndarray,
                        global_edge_attributes: jnp.ndarray) -> jnp.ndarray:
       del edges, received_attributes
-      
+
       if global_edge_attributes is not None:
         sent_attributes = jnp.concatenate(
             [sent_attributes, global_edge_attributes], axis=-1)
@@ -52,7 +52,7 @@ class GATv2(nn.Module):
 
       # Sent attribute embeddings encoded in edge features
       sent_attributes = edges
-      
+
       if global_edge_attributes is not None:
         received_attributes = jnp.concatenate(
             [received_attributes, global_edge_attributes], axis=-1)
@@ -84,9 +84,10 @@ class GATv2(nn.Module):
 
     def update_global_fn(node_attributes: jnp.ndarray,
                          edge_attributes: jnp.ndarray,
-                         global_attributes: jnp.ndarray) -> jnp.ndarray:
+                         global_attributes: Optional[jnp.ndarray]
+                         ) -> jnp.ndarray:
       if global_attributes is None:
-        return global_attributes
+        return
 
       attributes = jnp.concatenate(
           [node_attributes, edge_attributes, global_attributes], axis=-1)
@@ -110,6 +111,7 @@ if __name__ == '__main__':
   from flax_gnn.test.util import build_toy_graph
 
   graph = build_toy_graph()
+  graph = graph._replace(globals=None)
   model = GATv2(embed_dim=8, num_heads=2, add_self_edges=True)
   params = model.init(jax.random.PRNGKey(42), graph)
 
