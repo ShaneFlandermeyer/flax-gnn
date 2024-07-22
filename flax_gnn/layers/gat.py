@@ -16,6 +16,8 @@ class GATv2(nn.Module):
   The implementation is based on the appendix in Battaglia et al. (2018) "Relational inductive biases, deep learning, and graph networks".
 
   Specifically, attention messages are computed as edge features (the original edge features are discarded). The aggregated messages are then used to update the node features.
+
+  TODO: Handle masking of nodes and edges (e.g., from padding)
   """
   embed_dim: int
   num_heads: int
@@ -34,13 +36,18 @@ class GATv2(nn.Module):
                        sent_attributes: jnp.ndarray,
                        received_attributes: jnp.ndarray,
                        global_edge_attributes: jnp.ndarray) -> jnp.ndarray:
-      del edges, received_attributes
+      del received_attributes
+
+      if edges is None:
+        edges = sent_attributes
+      else:
+        edges = jnp.concatenate([edges, sent_attributes], axis=-1)
 
       if global_edge_attributes is not None:
         sent_attributes = jnp.concatenate(
             [sent_attributes, global_edge_attributes], axis=-1)
 
-      edges = W_s(sent_attributes)
+      edges = W_s(edges)
 
       return edges
 
