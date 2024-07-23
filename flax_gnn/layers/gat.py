@@ -26,16 +26,17 @@ class GATv2(nn.Module):
   @nn.compact
   def __call__(self, graph: jraph.GraphsTuple) -> jraph.GraphsTuple:
     head_dim = self.embed_dim // self.num_heads
+    W_e = nn.DenseGeneral(features=(self.num_heads, head_dim))
     W_s = nn.DenseGeneral(features=(self.num_heads, head_dim))
     W_r = nn.DenseGeneral(features=(self.num_heads, head_dim))
 
     if self.add_self_edges:
       graph = add_self_edges(graph)
 
-    def update_edge_fn(edges: jnp.ndarray,
+    def update_edge_fn(edges: Optional[jnp.ndarray],
                        sent_attributes: jnp.ndarray,
-                       received_attributes: jnp.ndarray,
-                       global_edge_attributes: jnp.ndarray) -> jnp.ndarray:
+                       received_attributes: Optional[jnp.ndarray],
+                       global_edge_attributes: Optional[jnp.ndarray]) -> jnp.ndarray:
       del received_attributes
 
       if edges is None:
@@ -44,10 +45,10 @@ class GATv2(nn.Module):
         edges = jnp.concatenate([edges, sent_attributes], axis=-1)
 
       if global_edge_attributes is not None:
-        sent_attributes = jnp.concatenate(
-            [sent_attributes, global_edge_attributes], axis=-1)
+        edges = jnp.concatenate(
+            [edges, global_edge_attributes], axis=-1)
 
-      edges = W_s(edges)
+      edges = W_e(edges)
 
       return edges
 
@@ -55,16 +56,16 @@ class GATv2(nn.Module):
                            sent_attributes: jnp.ndarray,
                            received_attributes: jnp.ndarray,
                            global_edge_attributes: jnp.ndarray) -> jnp.ndarray:
-      del sent_attributes
-
-      # Sent attribute embeddings encoded in edge features
-      sent_attributes = edges
+      del edges
 
       if global_edge_attributes is not None:
+        sent_attributes = jnp.concatenate(
+            [sent_attributes, global_edge_attributes], axis=-1)
         received_attributes = jnp.concatenate(
             [received_attributes, global_edge_attributes], axis=-1)
 
       # GATv2 update rule
+      sent_attributes = W_s(sent_attributes)
       received_attributes = W_r(received_attributes)
       x = mish(sent_attributes + received_attributes)
       x = nn.Dense(1)(x)
@@ -74,7 +75,7 @@ class GATv2(nn.Module):
                             weights: jnp.ndarray) -> jnp.ndarray:
       # Scale by softmax weights.
       # We do not aggregate here since aggregation is done during node feature computation
-      x = edges * weights
+      x = weights * edges
       x = rearrange(x, '... h d -> ... (h d)')
       return x
 
