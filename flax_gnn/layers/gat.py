@@ -27,7 +27,7 @@ class GATv2(nn.Module):
   def __call__(self, graph: jraph.GraphsTuple) -> jraph.GraphsTuple:
     head_dim = self.embed_dim // self.num_heads
     W_e = nn.DenseGeneral(features=(self.num_heads, head_dim))
-    W_s = nn.DenseGeneral(features=(self.num_heads, head_dim))
+    W_s = nn.Dense(self.embed_dim) # Already multi-headed
     W_r = nn.DenseGeneral(features=(self.num_heads, head_dim))
 
     if self.add_self_edges:
@@ -35,18 +35,18 @@ class GATv2(nn.Module):
 
     def update_edge_fn(edges: Optional[jnp.ndarray],
                        sent_attributes: jnp.ndarray,
-                       received_attributes: Optional[jnp.ndarray],
-                       global_edge_attributes: Optional[jnp.ndarray]) -> jnp.ndarray:
+                       received_attributes: jnp.ndarray,
+                       global_edge_attributes: Optional[jnp.ndarray]
+                       ) -> jnp.ndarray:
       del received_attributes
 
-      if edges is None:
+      if edges is None: # No edge features provided
         edges = sent_attributes
       else:
         edges = jnp.concatenate([edges, sent_attributes], axis=-1)
 
       if global_edge_attributes is not None:
-        edges = jnp.concatenate(
-            [edges, global_edge_attributes], axis=-1)
+        edges = jnp.concatenate([edges, global_edge_attributes], axis=-1)
 
       edges = W_e(edges)
 
@@ -56,11 +56,11 @@ class GATv2(nn.Module):
                            sent_attributes: jnp.ndarray,
                            received_attributes: jnp.ndarray,
                            global_edge_attributes: jnp.ndarray) -> jnp.ndarray:
-      del edges
+      # Already used to compute edge features
+      del sent_attributes
+      sent_attributes = edges
 
       if global_edge_attributes is not None:
-        sent_attributes = jnp.concatenate(
-            [sent_attributes, global_edge_attributes], axis=-1)
         received_attributes = jnp.concatenate(
             [received_attributes, global_edge_attributes], axis=-1)
 
@@ -105,10 +105,13 @@ class GATv2(nn.Module):
         update_edge_fn=update_edge_fn,
         update_node_fn=update_node_fn,
         update_global_fn=update_global_fn,
-        attention_logit_fn=attention_logit_fn,
-        attention_reduce_fn=attention_reduce_fn,
-        aggregate_edges_for_globals_fn=jraph.segment_mean,
+        aggregate_edges_for_nodes_fn=jraph.segment_sum,
         aggregate_nodes_for_globals_fn=jraph.segment_mean,
+        aggregate_edges_for_globals_fn=jraph.segment_mean,
+        attention_logit_fn=attention_logit_fn,
+        attention_normalize_fn=jraph.segment_softmax,
+        attention_reduce_fn=attention_reduce_fn
+        
     )
     graph = network(graph)
 
