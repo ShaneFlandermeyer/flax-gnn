@@ -18,6 +18,8 @@ class GATv2(nn.Module):
   Specifically, attention messages are computed as edge features (the original edge features are discarded). The aggregated messages are then used to update the node features.
 
   TODO: Handle masking of nodes and edges (e.g., from padding)
+
+  TODO: Support multiple edge/node types
   """
   embed_dim: int
   num_heads: int
@@ -26,9 +28,10 @@ class GATv2(nn.Module):
   @nn.compact
   def __call__(self, graph: jraph.GraphsTuple) -> jraph.GraphsTuple:
     head_dim = self.embed_dim // self.num_heads
-    W_e = nn.DenseGeneral(features=(self.num_heads, head_dim))
-    W_s = nn.Dense(self.embed_dim) # Already multi-headed
+
+    W_s = nn.DenseGeneral(features=(self.num_heads, head_dim))
     W_r = nn.DenseGeneral(features=(self.num_heads, head_dim))
+    W_e = nn.DenseGeneral(features=(self.num_heads, head_dim))
 
     if self.add_self_edges:
       graph = add_self_edges(graph)
@@ -38,35 +41,36 @@ class GATv2(nn.Module):
                        received_attributes: jnp.ndarray,
                        global_edge_attributes: Optional[jnp.ndarray]
                        ) -> jnp.ndarray:
-      del received_attributes
+      del received_attributes  # Not used
 
-      if edges is None: # No edge features provided
-        edges = sent_attributes
-      else:
-        edges = jnp.concatenate([edges, sent_attributes], axis=-1)
-
+      # Attach global attributes to node features
       if global_edge_attributes is not None:
-        edges = jnp.concatenate([edges, global_edge_attributes], axis=-1)
+        sent_attributes = jnp.concatenate(
+            [sent_attributes, global_edge_attributes], axis=-1)
+      sent_attributes = W_s(sent_attributes)
 
-      edges = W_e(edges)
+      # Update edge attributes
+      if edges is None:
+        edge_attributes = jnp.zeros_like(sent_attributes)
+      else:
+        edge_attributes = W_e(edges)
 
+      edges = edge_attributes + sent_attributes
       return edges
 
     def attention_logit_fn(edges: jnp.ndarray,
                            sent_attributes: jnp.ndarray,
                            received_attributes: jnp.ndarray,
                            global_edge_attributes: jnp.ndarray) -> jnp.ndarray:
-      # Already used to compute edge features
-      del sent_attributes
-      sent_attributes = edges
 
       if global_edge_attributes is not None:
         received_attributes = jnp.concatenate(
             [received_attributes, global_edge_attributes], axis=-1)
 
       # GATv2 update rule
-      sent_attributes = W_s(sent_attributes)
+      sent_attributes = edges
       received_attributes = W_r(received_attributes)
+
       x = mish(sent_attributes + received_attributes)
       x = nn.Dense(1)(x)
       return x
@@ -111,7 +115,7 @@ class GATv2(nn.Module):
         attention_logit_fn=attention_logit_fn,
         attention_normalize_fn=jraph.segment_softmax,
         attention_reduce_fn=attention_reduce_fn
-        
+
     )
     graph = network(graph)
 
