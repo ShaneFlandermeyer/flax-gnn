@@ -16,10 +16,6 @@ class GATv2(nn.Module):
   The implementation is based on the appendix in Battaglia et al. (2018) "Relational inductive biases, deep learning, and graph networks".
 
   Specifically, attention messages are computed as edge features (the original edge features are discarded). The aggregated messages are then used to update the node features.
-
-  TODO: Handle masking of nodes and edges (e.g., from padding)
-
-  TODO: Support multiple edge/node types
   """
   embed_dim: int
   num_heads: int
@@ -31,6 +27,9 @@ class GATv2(nn.Module):
 
     W_s = nn.DenseGeneral(features=(self.num_heads, head_dim))
     W_r = nn.DenseGeneral(features=(self.num_heads, head_dim))
+
+    # Using an MLP for these since they don't get updated across layers
+    W_g = nn.DenseGeneral(features=(self.num_heads, head_dim))
     W_e = nn.DenseGeneral(features=(self.num_heads, head_dim))
 
     if self.add_self_edges:
@@ -41,34 +40,29 @@ class GATv2(nn.Module):
                        received_attributes: jnp.ndarray,
                        global_edge_attributes: Optional[jnp.ndarray]
                        ) -> jnp.ndarray:
-      del received_attributes  # Not used
+      del received_attributes
 
-      # Attach global attributes to node features
-      if global_edge_attributes is not None:
-        sent_attributes = jnp.concatenate(
-            [sent_attributes, global_edge_attributes], axis=-1)
       sent_attributes = W_s(sent_attributes)
 
-      # Update edge attributes
+      if global_edge_attributes is None:
+        global_edge_attributes = 0
+      else:
+        global_edge_attributes = W_g(global_edge_attributes)
+
       if edges is None:
-        edge_attributes = jnp.zeros_like(sent_attributes)
+        edge_attributes = 0
       else:
         edge_attributes = W_e(edges)
 
-      edges = edge_attributes + sent_attributes
-      return edges
+      return sent_attributes + edge_attributes + global_edge_attributes
 
     def attention_logit_fn(edges: jnp.ndarray,
                            sent_attributes: jnp.ndarray,
                            received_attributes: jnp.ndarray,
                            global_edge_attributes: jnp.ndarray) -> jnp.ndarray:
+      del global_edge_attributes
 
-      if global_edge_attributes is not None:
-        received_attributes = jnp.concatenate(
-            [received_attributes, global_edge_attributes], axis=-1)
-
-      # GATv2 update rule
-      sent_attributes = edges
+      sent_attributes = edges  # Computed above
       received_attributes = W_r(received_attributes)
 
       x = mish(sent_attributes + received_attributes)
@@ -77,8 +71,6 @@ class GATv2(nn.Module):
 
     def attention_reduce_fn(edges: jnp.ndarray,
                             weights: jnp.ndarray) -> jnp.ndarray:
-      # Scale by softmax weights.
-      # We do not aggregate here since aggregation is done during node feature computation
       x = weights * edges
       x = rearrange(x, '... h d -> ... (h d)')
       return x
@@ -89,26 +81,16 @@ class GATv2(nn.Module):
                        global_attributes: jnp.ndarray) -> jnp.ndarray:
       del nodes, sent_attributes, global_attributes
 
-      # Identity transformation - Node features come from the aggregated edge features of the attention mechanism
+      # Identity transformation - Node features are updated based on the aggregated messages from other nodes
+      # Some implementations apply a nonlinearity here, but we allow the user to do that somewhere else
       nodes = received_attributes
 
       return nodes
 
-    def update_global_fn(node_attributes: jnp.ndarray,
-                         edge_attributes: jnp.ndarray,
-                         global_attributes: Optional[jnp.ndarray]
-                         ) -> jnp.ndarray:
-      if global_attributes is None:
-        return
-
-      attributes = jnp.concatenate(
-          [node_attributes, edge_attributes, global_attributes], axis=-1)
-      return nn.Dense(self.embed_dim)(attributes)
-
     network = jraph.GraphNetwork(
         update_edge_fn=update_edge_fn,
         update_node_fn=update_node_fn,
-        update_global_fn=update_global_fn,
+        # update_global_fn=update_global_fn,
         aggregate_edges_for_nodes_fn=jraph.segment_sum,
         aggregate_nodes_for_globals_fn=jraph.segment_mean,
         aggregate_edges_for_globals_fn=jraph.segment_mean,
@@ -117,7 +99,7 @@ class GATv2(nn.Module):
         attention_reduce_fn=attention_reduce_fn
 
     )
-    graph = network(graph)
+    graph = graph._replace(nodes=network(graph).nodes)
 
     return graph
 
