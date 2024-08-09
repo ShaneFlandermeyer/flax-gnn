@@ -87,19 +87,34 @@ class GATv2(nn.Module):
 
       return nodes
 
+    def update_global_fn(node_attributes: jnp.ndarray,
+                         edge_attributes: jnp.ndarray,
+                         global_attributes: Optional[jnp.ndarray]
+                         ) -> jnp.ndarray:
+      if global_attributes is None:
+        return None
+
+      attributes = jnp.concatenate(
+          [node_attributes, edge_attributes, global_attributes], axis=-1)
+      return nn.Dense(self.embed_dim)(attributes)
+
     network = jraph.GraphNetwork(
         update_edge_fn=update_edge_fn,
         update_node_fn=update_node_fn,
-        # update_global_fn=update_global_fn,
+        update_global_fn=update_global_fn,
         aggregate_edges_for_nodes_fn=jraph.segment_sum,
-        aggregate_nodes_for_globals_fn=jraph.segment_mean,
-        aggregate_edges_for_globals_fn=jraph.segment_mean,
+        aggregate_nodes_for_globals_fn=jraph.segment_sum,
+        aggregate_edges_for_globals_fn=jraph.segment_sum,
         attention_logit_fn=attention_logit_fn,
         attention_normalize_fn=jraph.segment_softmax,
         attention_reduce_fn=attention_reduce_fn
 
     )
-    graph = graph._replace(nodes=network(graph).nodes)
+    next_graph = network(graph)
+    graph = graph._replace(
+        nodes=next_graph.nodes,
+        globals=next_graph.globals
+    )
 
     return graph
 
