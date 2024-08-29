@@ -20,6 +20,7 @@ class GATv2(nn.Module):
   embed_dim: int
   num_heads: int
   add_self_edges: bool = False
+  update_global_fn: Optional[nn.Module] = None
 
   @nn.compact
   def __call__(self, graph: jraph.GraphsTuple) -> jraph.GraphsTuple:
@@ -33,7 +34,9 @@ class GATv2(nn.Module):
     W_e = nn.DenseGeneral(features=(self.num_heads, head_dim))
 
     if self.add_self_edges:
-      graph = add_self_edges(graph)
+      graph_ = add_self_edges(graph)
+    else:
+      graph_ = graph
 
     def update_edge_fn(edges: Optional[jnp.ndarray],
                        sent_attributes: jnp.ndarray,
@@ -87,21 +90,10 @@ class GATv2(nn.Module):
 
       return nodes
 
-    def update_global_fn(node_attributes: jnp.ndarray,
-                         edge_attributes: jnp.ndarray,
-                         global_attributes: Optional[jnp.ndarray]
-                         ) -> jnp.ndarray:
-      if global_attributes is None:
-        return None
-
-      attributes = jnp.concatenate(
-          [node_attributes, edge_attributes, global_attributes], axis=-1)
-      return nn.Dense(self.embed_dim)(attributes)
-
     network = jraph.GraphNetwork(
         update_edge_fn=update_edge_fn,
         update_node_fn=update_node_fn,
-        update_global_fn=update_global_fn,
+        update_global_fn=self.update_global_fn,
         aggregate_edges_for_nodes_fn=jraph.segment_sum,
         aggregate_nodes_for_globals_fn=jraph.segment_sum,
         aggregate_edges_for_globals_fn=jraph.segment_sum,
@@ -110,7 +102,7 @@ class GATv2(nn.Module):
         attention_reduce_fn=attention_reduce_fn
 
     )
-    next_graph = network(graph)
+    next_graph = network(graph_)
     graph = graph._replace(
         nodes=next_graph.nodes,
         globals=next_graph.globals
