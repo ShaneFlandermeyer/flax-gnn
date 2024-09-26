@@ -32,9 +32,6 @@ class GATv2(nn.Module):
     W_g = nn.DenseGeneral(features=(self.num_heads, head_dim))
     W_e = nn.DenseGeneral(features=(self.num_heads, head_dim))
 
-    if self.add_self_edges:
-      graph = add_self_edges(graph)
-
     def update_edge_fn(edges: Optional[jnp.ndarray],
                        sent_attributes: jnp.ndarray,
                        received_attributes: jnp.ndarray,
@@ -44,17 +41,13 @@ class GATv2(nn.Module):
 
       sent_attributes = W_s(sent_attributes)
 
-      if global_edge_attributes is None:
-        global_edge_attributes = 0
-      else:
-        global_edge_attributes = W_g(global_edge_attributes)
+      # Handle global and edge attributes
+      if global_edge_attributes is not None:
+        sent_attributes += W_g(global_edge_attributes)
+      if edges is not None:
+        sent_attributes += W_e(edges)
 
-      if edges is None:
-        edge_attributes = 0
-      else:
-        edge_attributes = W_e(edges)
-
-      return sent_attributes + edge_attributes + global_edge_attributes
+      return sent_attributes
 
     def attention_logit_fn(edges: jnp.ndarray,
                            sent_attributes: jnp.ndarray,
@@ -62,7 +55,7 @@ class GATv2(nn.Module):
                            global_edge_attributes: jnp.ndarray) -> jnp.ndarray:
       del global_edge_attributes
 
-      sent_attributes = edges  # Computed above
+      sent_attributes = edges  # Computed in update_edge_fn
       received_attributes = W_r(received_attributes)
 
       x = mish(sent_attributes + received_attributes)
@@ -87,33 +80,24 @@ class GATv2(nn.Module):
 
       return nodes
 
-    def update_global_fn(node_attributes: jnp.ndarray,
-                         edge_attributes: jnp.ndarray,
-                         global_attributes: Optional[jnp.ndarray]
-                         ) -> jnp.ndarray:
-      if global_attributes is None:
-        return None
-
-      attributes = jnp.concatenate(
-          [node_attributes, edge_attributes, global_attributes], axis=-1)
-      return nn.Dense(self.embed_dim)(attributes)
-
     network = jraph.GraphNetwork(
         update_edge_fn=update_edge_fn,
         update_node_fn=update_node_fn,
-        update_global_fn=update_global_fn,
         aggregate_edges_for_nodes_fn=jraph.segment_sum,
-        aggregate_nodes_for_globals_fn=jraph.segment_sum,
-        aggregate_edges_for_globals_fn=jraph.segment_sum,
         attention_logit_fn=attention_logit_fn,
         attention_normalize_fn=jraph.segment_softmax,
         attention_reduce_fn=attention_reduce_fn
 
     )
-    next_graph = network(graph)
+
+    if self.add_self_edges:
+      graph_ = add_self_edges(graph)
+    else:
+      graph_ = graph
+
+    graph_ = network(graph_)
     graph = graph._replace(
-        nodes=next_graph.nodes,
-        globals=next_graph.globals
+        nodes=graph_.nodes,
     )
 
     return graph
