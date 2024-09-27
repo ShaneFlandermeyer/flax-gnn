@@ -20,17 +20,22 @@ class GATv2(nn.Module):
   embed_dim: int
   num_heads: int
   add_self_edges: bool = False
+  dtype: jnp.dtype = jnp.float32
 
   @nn.compact
   def __call__(self, graph: jraph.GraphsTuple) -> jraph.GraphsTuple:
     head_dim = self.embed_dim // self.num_heads
 
-    W_s = nn.DenseGeneral(features=(self.num_heads, head_dim))
-    W_r = nn.DenseGeneral(features=(self.num_heads, head_dim))
+    W_s = nn.DenseGeneral(
+        features=(self.num_heads, head_dim), dtype=self.dtype)
+    W_r = nn.DenseGeneral(
+        features=(self.num_heads, head_dim), dtype=self.dtype)
 
     # Using an MLP for these since they don't get updated across layers
-    W_g = nn.DenseGeneral(features=(self.num_heads, head_dim))
-    W_e = nn.DenseGeneral(features=(self.num_heads, head_dim))
+    W_g = nn.DenseGeneral(
+        features=(self.num_heads, head_dim), dtype=self.dtype)
+    W_e = nn.DenseGeneral(
+        features=(self.num_heads, head_dim), dtype=self.dtype)
 
     def update_edge_fn(edges: Optional[jnp.ndarray],
                        sent_attributes: jnp.ndarray,
@@ -59,7 +64,7 @@ class GATv2(nn.Module):
       received_attributes = W_r(received_attributes)
 
       x = mish(sent_attributes + received_attributes)
-      x = nn.Dense(1)(x)
+      x = nn.Dense(1, dtype=self.dtype)(x)
       return x
 
     def attention_reduce_fn(edges: jnp.ndarray,
