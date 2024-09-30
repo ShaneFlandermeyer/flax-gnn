@@ -20,16 +20,20 @@ class GATv2(nn.Module):
   embed_dim: int
   num_heads: int
   add_self_edges: bool = False
+  share_weights: bool = False
   dtype: jnp.dtype = jnp.float32
-
+  
   @nn.compact
   def __call__(self, graph: jraph.GraphsTuple) -> jraph.GraphsTuple:
     head_dim = self.embed_dim // self.num_heads
 
     W_s = nn.DenseGeneral(
         features=(self.num_heads, head_dim), dtype=self.dtype)
-    W_r = nn.DenseGeneral(
-        features=(self.num_heads, head_dim), dtype=self.dtype)
+    if self.share_weights:
+      W_r = W_s
+    else:
+      W_r = nn.DenseGeneral(
+          features=(self.num_heads, head_dim), dtype=self.dtype)
 
     # Using an MLP for these since they don't get updated across layers
     if graph.globals is None:
