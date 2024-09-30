@@ -32,10 +32,17 @@ class GATv2(nn.Module):
         features=(self.num_heads, head_dim), dtype=self.dtype)
 
     # Using an MLP for these since they don't get updated across layers
-    W_g = nn.DenseGeneral(
-        features=(self.num_heads, head_dim), dtype=self.dtype)
-    W_e = nn.DenseGeneral(
-        features=(self.num_heads, head_dim), dtype=self.dtype)
+    if graph.globals is None:
+      W_g = None
+    else:
+      W_g = nn.DenseGeneral(
+          features=(self.num_heads, head_dim), dtype=self.dtype)
+
+    if graph.edges is None:
+      W_e = None
+    else:
+      W_e = nn.DenseGeneral(
+          features=(self.num_heads, head_dim), dtype=self.dtype)
 
     def update_edge_fn(edges: Optional[jnp.ndarray],
                        sent_attributes: jnp.ndarray,
@@ -63,7 +70,7 @@ class GATv2(nn.Module):
       sent_attributes = edges  # Computed in update_edge_fn
       received_attributes = W_r(received_attributes)
 
-      x = mish(sent_attributes + received_attributes)
+      x = jax.nn.leaky_relu(sent_attributes + received_attributes)
       x = nn.Dense(1, dtype=self.dtype)(x)
       return x
 
