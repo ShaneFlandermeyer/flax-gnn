@@ -14,15 +14,15 @@ class GATv2(nn.Module):
   Implementation of GATv2 using jraph.GraphNetwork.
 
   The implementation is based on the appendix in Battaglia et al. (2018) "Relational inductive biases, deep learning, and graph networks".
-
-  Specifically, attention messages are computed as edge features (the original edge features are discarded). The aggregated messages are then used to update the node features.
+  
+  Incorporates global and edge features as in Wang2021
   """
   embed_dim: int
   num_heads: int
   add_self_edges: bool = False
   share_weights: bool = False
   dtype: jnp.dtype = jnp.float32
-  
+
   @nn.compact
   def __call__(self, graph: jraph.GraphsTuple) -> jraph.GraphsTuple:
     head_dim = self.embed_dim // self.num_heads
@@ -48,33 +48,30 @@ class GATv2(nn.Module):
       W_e = nn.DenseGeneral(
           features=(self.num_heads, head_dim), dtype=self.dtype)
 
-    def update_edge_fn(edges: Optional[jnp.ndarray],
+    def update_edge_fn(edges: jnp.ndarray,
                        sent_attributes: jnp.ndarray,
                        received_attributes: jnp.ndarray,
-                       global_edge_attributes: Optional[jnp.ndarray]
+                       global_edge_attributes: jnp.ndarray
                        ) -> jnp.ndarray:
-      del received_attributes
-
-      sent_attributes = W_s(sent_attributes)
-
-      # Handle global and edge attributes
-      if global_edge_attributes is not None:
-        sent_attributes += W_g(global_edge_attributes)
+      x = W_s(sent_attributes)
+      # Handle edge features
       if edges is not None:
-        sent_attributes += W_e(edges)
-
-      return sent_attributes
+        x += W_e(edges)
+      return x
 
     def attention_logit_fn(edges: jnp.ndarray,
                            sent_attributes: jnp.ndarray,
                            received_attributes: jnp.ndarray,
                            global_edge_attributes: jnp.ndarray) -> jnp.ndarray:
-      del global_edge_attributes
-
       sent_attributes = edges  # Computed in update_edge_fn
       received_attributes = W_r(received_attributes)
 
-      x = jax.nn.leaky_relu(sent_attributes + received_attributes)
+      x = sent_attributes + received_attributes
+      # Handle global features
+      if global_edge_attributes is not None:
+        x += W_g(global_edge_attributes)
+        
+      x = jax.nn.leaky_relu(x)
       x = nn.Dense(1, dtype=self.dtype)(x)
       return x
 
@@ -88,13 +85,9 @@ class GATv2(nn.Module):
                        sent_attributes: jnp.ndarray,
                        received_attributes: jnp.ndarray,
                        global_attributes: jnp.ndarray) -> jnp.ndarray:
-      del nodes, sent_attributes, global_attributes
-
       # Identity transformation - Node features are updated based on the aggregated messages from other nodes
       # Some implementations apply a nonlinearity here, but we allow the user to do that somewhere else
-      nodes = received_attributes
-
-      return nodes
+      return received_attributes
 
     network = jraph.GraphNetwork(
         update_edge_fn=update_edge_fn,
