@@ -52,7 +52,7 @@ class GATv2(nn.Module):
                            sent_attributes: jnp.ndarray,
                            received_attributes: jnp.ndarray,
                            global_edge_attributes: jnp.ndarray) -> jnp.ndarray:
-      sent_attributes, edge_attributes = edges
+      sent_attributes, edge_attributes = edges # Computed from update_edge_fn
       received_attributes = W_r(received_attributes)
       x = sent_attributes + received_attributes
 
