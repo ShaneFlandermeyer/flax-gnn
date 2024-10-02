@@ -8,36 +8,6 @@ import jax.numpy as jnp
 from einops import rearrange
 from flax_gnn.layers.activations import mish
 
-
-# def symmetric_normalization(graph: jraph.GraphsTuple):
-#   total_num_nodes = jax.tree.leaves(graph.nodes)[0].shape[0]
-#   # Calculate the normalization values.
-#   def count_edges(x): return jax.ops.segment_sum(
-#       jnp.ones_like(graph.senders), x, total_num_nodes)
-#   sender_degree = count_edges(graph.senders)
-#   receiver_degree = count_edges(graph.receivers)
-
-#   # Pre normalize by sqrt sender degree.
-#   # Avoid dividing by 0 by taking maximum of (degree, 1).
-#   nodes = jax.tree.map(
-#       lambda x: x * jax.lax.rsqrt(jnp.maximum(sender_degree, 1.0))[:, None],
-#       graph.nodes,
-#   )
-#   # Aggregate the pre-normalized nodes.
-#   nodes = jax.tree.map(
-#       lambda x: jraph.segment_sum(x[graph.senders], graph.receivers,
-#                                   total_num_nodes), graph.nodes)
-#   # Post normalize by sqrt receiver degree.
-#   # Avoid dividing by 0 by taking maximum of (degree, 1).
-#   nodes = jax.tree.map(
-#       lambda x:
-#       (x * jax.lax.rsqrt(jnp.maximum(receiver_degree, 1.0))[:, None]),
-#       nodes,
-#   )
-
-#   return graph._replace(nodes=nodes)
-
-
 class GCN(nn.Module):
   """
   Implementation of a Graph Convolution layer using jraph.GraphNetwork
