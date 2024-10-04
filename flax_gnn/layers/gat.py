@@ -70,7 +70,7 @@ class GATv2(nn.Module):
                      (self.num_heads, head_dim))
       a = jnp.tile(a, (*x.shape[:-2], 1, 1)).astype(self.dtype)
       x = rearrange(x, '... (h d) -> ... h d', h=self.num_heads)
-      attn_logits = (x * a).sum(axis=-1, keepdims=True)
+      attn_logits = jnp.sum(x * a, axis=-1, keepdims=True)
       return attn_logits
 
     def attention_reduce_fn(edges: jnp.ndarray,
