@@ -26,24 +26,18 @@ class GATv2(nn.Module):
   @nn.compact
   def __call__(self, graph: jraph.GraphsTuple) -> jraph.GraphsTuple:
     head_dim = self.embed_dim // self.num_heads
-
-    W_s = nn.DenseGeneral(
-        features=(self.num_heads, head_dim), dtype=self.dtype)
+    W_s = nn.Dense(self.embed_dim, dtype=self.dtype)
     if self.share_weights:
       W_r = W_s
     else:
-      W_r = nn.DenseGeneral(
-          features=(self.num_heads, head_dim), dtype=self.dtype)
-
-    # Edge/global feature encoder
-    W_e = nn.DenseGeneral(
-        features=(self.num_heads, head_dim), dtype=self.dtype)
+      W_r = nn.Dense(self.embed_dim, dtype=self.dtype)
 
     def update_edge_fn(edges: jnp.ndarray,
                        sent_attributes: jnp.ndarray,
                        received_attributes: jnp.ndarray,
                        global_edge_attributes: jnp.ndarray
                        ) -> Tuple[jnp.ndarray, jnp.ndarray]:
+      del received_attributes, global_edge_attributes
       sent_attributes = W_s(sent_attributes)
 
       return sent_attributes, edges
@@ -52,7 +46,7 @@ class GATv2(nn.Module):
                            sent_attributes: jnp.ndarray,
                            received_attributes: jnp.ndarray,
                            global_edge_attributes: jnp.ndarray) -> jnp.ndarray:
-      sent_attributes, edge_attributes = edges # Computed from update_edge_fn
+      sent_attributes, edge_attributes = edges  # Computed from update_edge_fn
       received_attributes = W_r(received_attributes)
       x = sent_attributes + received_attributes
 
@@ -65,16 +59,25 @@ class GATv2(nn.Module):
         else:  # Edge and global
           edge_attributes = jnp.concatenate(
               [edge_attributes, global_edge_attributes], axis=-1)
-        edge_attributes = W_e(edge_attributes)
+        edge_attributes = nn.Dense(
+            self.embed_dim, dtype=self.dtype)(edge_attributes)
         x += edge_attributes
 
       x = jax.nn.leaky_relu(x)
-      x = nn.Dense(1, dtype=self.dtype)(x)
-      return x
+
+      # Multi-head attention weights
+      a = self.param('a', nn.initializers.xavier_normal(),
+                     (self.num_heads, head_dim))
+      a = jnp.tile(a, (*x.shape[:-2], 1, 1)).astype(self.dtype)
+      x = rearrange(x, '... (h d) -> ... h d', h=self.num_heads)
+      attn_logits = (x * a).sum(axis=-1, keepdims=True)
+      return attn_logits
 
     def attention_reduce_fn(edges: jnp.ndarray,
                             weights: jnp.ndarray) -> jnp.ndarray:
-      sent_attributes, edge_attributes = edges
+      sent_attributes, _ = edges
+      sent_attributes = rearrange(
+          sent_attributes, '... (h d) -> ... h d', h=self.num_heads)
       x = weights * sent_attributes
       x = rearrange(x, '... h d -> ... (h d)')
       return x
@@ -83,6 +86,7 @@ class GATv2(nn.Module):
                        sent_attributes: jnp.ndarray,
                        received_attributes: jnp.ndarray,
                        global_attributes: jnp.ndarray) -> jnp.ndarray:
+      del nodes, sent_attributes, global_attributes
       # Identity transformation - Node features are updated based on the aggregated messages from other nodes
       # Some implementations apply a nonlinearity here, but we allow the user to do that somewhere else
       return received_attributes

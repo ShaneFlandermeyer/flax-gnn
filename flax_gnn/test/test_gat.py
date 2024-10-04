@@ -15,7 +15,7 @@ def test_gcn():
 
     @nn.compact
     def __call__(self, graph: jraph.GraphsTuple) -> jraph.GraphsTuple:
-      graph = GATv2(embed_dim=10, num_heads=1, add_self_edges=True)(graph)
+      graph = GATv2(embed_dim=10, num_heads=2, add_self_edges=True)(graph)
       graph = jraph.GraphMapFeatures(embed_node_fn=nn.relu)(graph)
 
       graph = GATv2(embed_dim=2, num_heads=1)(graph)
