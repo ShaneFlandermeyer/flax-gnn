@@ -31,6 +31,7 @@ class GATv2(nn.Module):
       W_r = W_s
     else:
       W_r = nn.Dense(self.embed_dim, dtype=self.dtype)
+    W_e = nn.Dense(self.embed_dim, dtype=self.dtype)
 
     def update_edge_fn(edges: jnp.ndarray,
                        sent_attributes: jnp.ndarray,
@@ -59,8 +60,7 @@ class GATv2(nn.Module):
         else:  # Edge and global
           edge_attributes = jnp.concatenate(
               [edge_attributes, global_edge_attributes], axis=-1)
-        edge_attributes = nn.Dense(
-            self.embed_dim, dtype=self.dtype)(edge_attributes)
+        edge_attributes = W_e(edge_attributes)
         x += edge_attributes
 
       x = jax.nn.leaky_relu(x)
