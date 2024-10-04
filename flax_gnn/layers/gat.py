@@ -66,10 +66,10 @@ class GATv2(nn.Module):
       x = jax.nn.leaky_relu(x)
 
       # Multi-head attention weights
+      x = rearrange(x, '... (h d) -> ... h d', h=self.num_heads)
       a = self.param('a', nn.initializers.xavier_normal(),
                      (self.num_heads, head_dim))
       a = jnp.tile(a, (*x.shape[:-2], 1, 1)).astype(self.dtype)
-      x = rearrange(x, '... (h d) -> ... h d', h=self.num_heads)
       attn_logits = jnp.sum(x * a, axis=-1, keepdims=True)
       return attn_logits
 
