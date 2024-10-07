@@ -71,8 +71,7 @@ class GATv2(nn.Module):
 
       # Multi-head attention weights
       x = rearrange(x, '... (h d) -> ... h d', h=self.num_heads)
-      a = self.param('a', nn.initializers.xavier_uniform(),
-                     (self.num_heads, head_dim))
+      a = self.param('a', self.kernel_init, (self.num_heads, head_dim))
       a = jnp.tile(a, (*x.shape[:-2], 1, 1)).astype(self.dtype)
       attn_logits = jnp.sum(x * a, axis=-1, keepdims=True)
       return attn_logits
