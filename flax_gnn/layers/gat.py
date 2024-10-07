@@ -22,16 +22,20 @@ class GATv2(nn.Module):
   add_self_edges: bool = False
   share_weights: bool = False
   dtype: jnp.dtype = jnp.float32
+  kernel_init: nn.initializers.Initializer = nn.initializers.xavier_normal()
 
   @nn.compact
   def __call__(self, graph: jraph.GraphsTuple) -> jraph.GraphsTuple:
     head_dim = self.embed_dim // self.num_heads
-    W_s = nn.Dense(self.embed_dim, dtype=self.dtype)
+    W_s = nn.Dense(self.embed_dim, dtype=self.dtype,
+                   kernel_init=self.kernel_init)
     if self.share_weights:
       W_r = W_s
     else:
-      W_r = nn.Dense(self.embed_dim, dtype=self.dtype)
-    W_e = nn.Dense(self.embed_dim, dtype=self.dtype)
+      W_r = nn.Dense(self.embed_dim, dtype=self.dtype,
+                     kernel_init=self.kernel_init)
+    W_e = nn.Dense(self.embed_dim, dtype=self.dtype,
+                   kernel_init=self.kernel_init)
 
     def update_edge_fn(edges: jnp.ndarray,
                        sent_attributes: jnp.ndarray,
@@ -67,7 +71,7 @@ class GATv2(nn.Module):
 
       # Multi-head attention weights
       x = rearrange(x, '... (h d) -> ... h d', h=self.num_heads)
-      a = self.param('a', nn.initializers.xavier_normal(),
+      a = self.param('a', nn.initializers.xavier_uniform(),
                      (self.num_heads, head_dim))
       a = jnp.tile(a, (*x.shape[:-2], 1, 1)).astype(self.dtype)
       attn_logits = jnp.sum(x * a, axis=-1, keepdims=True)
