@@ -28,21 +28,26 @@ class GATv2(nn.Module):
   def __call__(self, graph: jraph.GraphsTuple) -> jraph.GraphsTuple:
     head_dim = self.embed_dim // self.num_heads
     W_s = nn.Dense(self.embed_dim, dtype=self.dtype,
-                   kernel_init=self.kernel_init)
+                   kernel_init=self.kernel_init,
+                   name='W_s')
     if self.share_weights:
       W_r = W_s
     else:
       W_r = nn.Dense(self.embed_dim, dtype=self.dtype,
-                     kernel_init=self.kernel_init)
+                     kernel_init=self.kernel_init,
+                     name='W_r')
     W_e = nn.Dense(self.embed_dim, dtype=self.dtype,
-                   kernel_init=self.kernel_init)
+                   kernel_init=self.kernel_init,
+                   name='W_e')
 
     def update_edge_fn(edges: jnp.ndarray,
                        sent_attributes: jnp.ndarray,
                        received_attributes: jnp.ndarray,
                        global_edge_attributes: jnp.ndarray
                        ) -> Tuple[jnp.ndarray, jnp.ndarray]:
-      del received_attributes, global_edge_attributes
+      if global_edge_attributes is not None:
+        sent_attributes = jnp.concatenate(
+            [sent_attributes, global_edge_attributes], axis=-1)
       sent_attributes = W_s(sent_attributes)
 
       return sent_attributes, edges
@@ -52,20 +57,16 @@ class GATv2(nn.Module):
                            received_attributes: jnp.ndarray,
                            global_edge_attributes: jnp.ndarray) -> jnp.ndarray:
       sent_attributes, edge_attributes = edges  # Computed from update_edge_fn
+
+      if global_edge_attributes is not None:
+        received_attributes = jnp.concatenate(
+            [received_attributes, global_edge_attributes], axis=-1)
       received_attributes = W_r(received_attributes)
       x = sent_attributes + received_attributes
 
-      # Handle edge/global attributes
-      if edge_attributes is not None or global_edge_attributes is not None:
-        if global_edge_attributes is None:  # Edge only
-          edge_attributes = edge_attributes
-        elif edge_attributes is None:  # Global only
-          edge_attributes = global_edge_attributes
-        else:  # Edge and global
-          edge_attributes = jnp.concatenate(
-              [edge_attributes, global_edge_attributes], axis=-1)
-        edge_attributes = W_e(edge_attributes)
-        x += edge_attributes
+      # Handle edge attributes
+      if edge_attributes is not None:
+        x += W_e(edge_attributes)
 
       x = jax.nn.leaky_relu(x)
 
@@ -89,7 +90,6 @@ class GATv2(nn.Module):
                        sent_attributes: jnp.ndarray,
                        received_attributes: jnp.ndarray,
                        global_attributes: jnp.ndarray) -> jnp.ndarray:
-      del nodes, sent_attributes, global_attributes
       # Identity transformation - Node features are updated based on the aggregated messages from other nodes
       # Some implementations apply a nonlinearity here, but we allow the user to do that somewhere else
       return received_attributes
