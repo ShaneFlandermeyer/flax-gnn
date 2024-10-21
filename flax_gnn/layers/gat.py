@@ -45,9 +45,6 @@ class GATv2(nn.Module):
                        received_attributes: jnp.ndarray,
                        global_edge_attributes: jnp.ndarray
                        ) -> Tuple[jnp.ndarray, jnp.ndarray]:
-      if global_edge_attributes is not None:
-        sent_attributes = jnp.concatenate(
-            [sent_attributes, global_edge_attributes], axis=-1)
       sent_attributes = W_s(sent_attributes)
 
       return sent_attributes, edges
@@ -57,16 +54,19 @@ class GATv2(nn.Module):
                            received_attributes: jnp.ndarray,
                            global_edge_attributes: jnp.ndarray) -> jnp.ndarray:
       sent_attributes, edge_attributes = edges  # Computed from update_edge_fn
-
-      if global_edge_attributes is not None:
-        received_attributes = jnp.concatenate(
-            [received_attributes, global_edge_attributes], axis=-1)
       received_attributes = W_r(received_attributes)
+      # Handle edge/global attributes
+      if edge_attributes is not None or global_edge_attributes is not None:
+        if global_edge_attributes is None:
+          edge_attributes = edge_attributes
+        elif edge_attributes is None:
+          edge_attributes = global_edge_attributes
+        else:
+          edge_attributes = jnp.concatenate(
+              [edge_attributes, global_edge_attributes], axis=-1)
+        received_attributes += W_e(edge_attributes)
+      
       x = sent_attributes + received_attributes
-
-      # Handle edge attributes
-      if edge_attributes is not None:
-        x += W_e(edge_attributes)
 
       x = jax.nn.leaky_relu(x)
 
