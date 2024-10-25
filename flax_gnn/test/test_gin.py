@@ -6,7 +6,7 @@ import jax
 import optax
 from flax_gnn.test.util import get_ground_truth_assignments_for_zacharys_karate_club, get_zacharys_karate_club
 import jax.numpy as jnp
-from flax_gnn.layers.gcn import GCN
+from flax_gnn.layers.gin import GIN
 import pytest
 
 
@@ -15,10 +15,16 @@ def test():
 
     @nn.compact
     def __call__(self, graph: jraph.GraphsTuple) -> jraph.GraphsTuple:
-      graph = GCN(embed_dim=8, add_self_edges=True, normalize=True)(graph)
-      graph = jraph.GraphMapFeatures(embed_node_fn=nn.relu)(graph)
-
-      graph = GCN(embed_dim=2, normalize=True)(graph)
+      graph = GIN(mlp=nn.Sequential([
+        nn.Dense(6),
+        nn.relu,
+        nn.Dense(6)
+      ]), epsilon=0.0)(graph)
+      graph = GIN(mlp=nn.Sequential([
+        nn.Dense(2),
+        nn.relu,
+        nn.Dense(2)
+      ]), epsilon=None)(graph)
 
       return graph
 
@@ -55,9 +61,10 @@ def test():
       decoded_graph = network.apply(params, karate_club)
       return jnp.mean(jnp.argmax(decoded_graph.nodes, axis=1) == labels)
 
+    start = time.time()
     for i in range(num_steps):
       params, opt_state = update(params, opt_state)
-
+    print("Training time: ", time.time() - start)
     return predict(params), accuracy(params).item()
 
   model = Model()
@@ -66,4 +73,5 @@ def test():
 
 
 if __name__ == '__main__':
+  # test_gin()
   pytest.main([__file__])

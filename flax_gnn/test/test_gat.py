@@ -10,7 +10,7 @@ from flax_gnn.layers.gat import GATv2
 import pytest
 
 
-def test_gcn():
+def test():
   class Model(nn.Module):
 
     @nn.compact
@@ -67,4 +67,5 @@ def test_gcn():
 
 
 if __name__ == '__main__':
-  pytest.main([__file__])
+  test()
+  # pytest.main([__file__])

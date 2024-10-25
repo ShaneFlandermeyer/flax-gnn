@@ -8,6 +8,7 @@ import jax.numpy as jnp
 from einops import rearrange
 from flax_gnn.layers.activations import mish
 
+
 class GCN(nn.Module):
   """
   Implementation of a Graph Convolution layer using jraph.GraphNetwork
@@ -20,18 +21,21 @@ class GCN(nn.Module):
   add_self_edges: bool = False
   normalize: bool = True
   dtype: jnp.dtype = jnp.float32
+  kernel_init: nn.initializers.Initializer = nn.initializers.xavier_uniform()
 
   @nn.compact
   def __call__(self, graph: jraph.GraphsTuple) -> jraph.GraphsTuple:
-    W = nn.Dense(self.embed_dim, dtype=self.dtype)
-    W_e = nn.Dense(self.embed_dim, dtype=self.dtype)
+    W = nn.Dense(self.embed_dim, kernel_init=self.kernel_init,
+                 dtype=self.dtype)
+    W_e = nn.Dense(self.embed_dim, kernel_init=self.kernel_init,
+                   dtype=self.dtype)
 
     def update_edge_fn(edges: jnp.ndarray,
                        sent_attributes: jnp.ndarray,
                        received_attributes: jnp.ndarray,
                        global_edge_attributes: jnp.ndarray
                        ) -> jnp.ndarray:
-      x = W(sent_attributes)
+      sent_attributes = W(sent_attributes)
 
       # Handle edge/global attributes
       if edges is not None or global_edge_attributes is not None:
@@ -42,10 +46,9 @@ class GCN(nn.Module):
         else:  # Edge and global
           edge_attributes = jnp.concatenate(
               [edges, global_edge_attributes], axis=-1)
-        edge_attributes = W_e(edge_attributes)
-        x += edge_attributes
+        sent_attributes += W_e(edge_attributes)
 
-      return x
+      return sent_attributes
 
     def update_node_fn(nodes: jnp.ndarray,
                        sent_attributes: jnp.ndarray,
