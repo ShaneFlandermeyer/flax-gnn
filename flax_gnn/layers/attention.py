@@ -5,9 +5,6 @@ from typing import Optional
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
-from einops import rearrange
-from tdmpc2_jax.common.activations import mish
-from tdmpc2_jax.networks.mlp import NormedLinear
 
 
 class AttentionBlock(nn.Module):
@@ -30,28 +27,20 @@ class AttentionBlock(nn.Module):
     mask = nn.make_attention_mask(query_mask, key_mask)
 
     # Attention
-    mha = nn.MultiHeadAttention(num_heads=self.num_heads, dtype=self.dtype)
-    if self.pre_norm:
-      q_normed = nn.LayerNorm()(query, mask=query_mask[..., None])
-      q_normed = jnp.where(query_mask[..., None], q_normed, 0.0)
-      kv_normed = nn.LayerNorm()(key, mask=key_mask[..., None])
-      kv_normed = jnp.where(key_mask[..., None], kv_normed, 0.0)
-    else:
-      q_normed, kv_normed = query, key
-    x = query + mha(inputs_q=q_normed, inputs_kv=kv_normed, mask=mask)
+    mha = nn.MultiHeadAttention(
+        num_heads=self.num_heads,
+        normalize_qk=self.pre_norm,
+        dtype=self.dtype)
+    x = query + mha(inputs_q=query, inputs_kv=key, mask=mask)
 
     # FFN
-    if self.pre_norm:
-      x_normed = nn.LayerNorm()(x, mask=query_mask[..., None])
-      x_normed = jnp.where(query_mask[..., None], x_normed, 0.0)
-    else:
-      x_normed = x
     ffn = nn.Sequential([
+        nn.LayerNorm() if self.pre_norm else lambda x: x,
         nn.Dense(self.hidden_dim, dtype=self.dtype),
-        mish,
+        nn.gelu,
         nn.Dense(self.embed_dim, dtype=self.dtype),
     ], name='ffn')
-    x = x + ffn(x_normed)
+    x = x + ffn(x)
 
     return x
 
