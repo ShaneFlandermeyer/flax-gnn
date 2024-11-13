@@ -27,19 +27,23 @@ class AttentionBlock(nn.Module):
     mask = nn.make_attention_mask(query_mask, key_mask)
 
     # Attention
-    mha = nn.MultiHeadAttention(
-        num_heads=self.num_heads,
-        normalize_qk=self.pre_norm,
-        dtype=self.dtype)
-    x = query + mha(inputs_q=query, inputs_kv=key, mask=mask)
+    if self.pre_norm:
+      q_norm = nn.RMSNorm(dtype=self.dtype)(query)
+      k_norm = nn.RMSNorm(dtype=self.dtype)(key)
+    else:
+      q_norm = query
+      k_norm = key
+    mha = nn.MultiHeadAttention(num_heads=self.num_heads, dtype=self.dtype)
+    x = query + mha(inputs_q=q_norm, inputs_kv=k_norm, mask=mask)
 
     # FFN
     ffn = nn.Sequential([
-        nn.LayerNorm() if self.pre_norm else lambda x: x,
+        nn.RMSNorm() if self.pre_norm else lambda x: x,
         nn.Dense(self.hidden_dim, dtype=self.dtype),
         nn.gelu,
         nn.Dense(self.embed_dim, dtype=self.dtype),
     ], name='ffn')
+
     x = x + ffn(x)
 
     return x
@@ -53,7 +57,7 @@ class PMA(nn.Module):
   def __call__(self, x: jax.Array, valid: jax.Array = None):
     batch_dims, embed_dim = x.shape[:-2], x.shape[-1]
 
-    S = self.param('S', nn.initializers.xavier_uniform(),
+    S = self.param('S', nn.initializers.xavier_normal(),
                    (self.num_seeds, embed_dim))
     S = jnp.tile(S, [*batch_dims, 1, 1])
 
@@ -67,30 +71,38 @@ class PMA(nn.Module):
 
 
 class PerceiverIO(nn.Module):
+  embed_dim: int
   attention_base: nn.Module
   num_latents: int
   num_latent_steps: int
+  share_latent_weights: bool = False
 
   @nn.compact
   def __call__(self,
                input_tokens: jax.Array,
                output_query: jax.Array,
-               valid_input_token: Optional[jax.Array] = None,
-               output_query_mask: Optional[jax.Array] = None,
+               input_mask: Optional[jax.Array] = None,
+               output_mask: Optional[jax.Array] = None,
                ) -> jax.Array:
     # Encode
-    latents = self.param('latents', nn.initializers.truncated_normal(0.02),
+    latents = self.param('latents', nn.initializers.xavier_normal(),
                          (self.num_latents, self.embed_dim))
-    latents = self.attention_base(
+    latents = jnp.tile(latents, (*input_tokens.shape[:-2], 1, 1))
+    latents = self.attention_base()(
         query=latents,
         key=input_tokens,
         query_mask=None,
-        key_mask=valid_input_token
+        key_mask=input_mask
     )
 
-    # Self attention
+    # Latent self attention
     for i in range(self.num_latent_steps):
-      latents = self.attention_base(
+      if self.share_latent_weights:
+        latent_attention = self.attention_base() if i == 0 else latent_attention
+      else:
+        latent_attention = self.attention_base()
+
+      latents = self.attention_base()(
           query=latents,
           key=latents,
           query_mask=None,
@@ -98,10 +110,10 @@ class PerceiverIO(nn.Module):
       )
 
     # Decode
-    x = self.attention_base(
+    x = self.attention_base()(
         query=output_query,
         key=latents,
-        query_mask=output_query_mask,
+        query_mask=output_mask,
         key_mask=None
     )
 

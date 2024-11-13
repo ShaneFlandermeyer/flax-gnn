@@ -6,7 +6,7 @@ import jax
 import optax
 from flax_gnn.test.util import get_ground_truth_assignments_for_zacharys_karate_club, get_zacharys_karate_club
 import jax.numpy as jnp
-from flax_gnn.layers.gin import GIN
+from flax_gnn.layers.pointnet import PointNet
 import pytest
 
 
@@ -15,16 +15,18 @@ def test():
 
     @nn.compact
     def __call__(self, graph: jraph.GraphsTuple) -> jraph.GraphsTuple:
-      graph = GIN(mlp=nn.Sequential([
-        nn.Dense(6),
-        nn.relu,
-        nn.Dense(6)
-      ]), epsilon=0.0)(graph)
-      graph = GIN(mlp=nn.Sequential([
-        nn.Dense(2),
-        nn.relu,
-        nn.Dense(2)
-      ]), epsilon=None)(graph)
+      # Note: Pointnet doesn't perform too well on this dataset
+      graph = PointNet(mlp=nn.Sequential([
+          nn.Dense(6),
+          nn.relu,
+          nn.Dense(6)
+      ]))(graph)
+
+      graph = PointNet(mlp=nn.Sequential([
+          nn.Dense(2),
+          nn.relu,
+          nn.Dense(2)
+      ]))(graph)
 
       return graph
 

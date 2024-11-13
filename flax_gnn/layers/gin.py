@@ -12,38 +12,36 @@ from typing import Optional, Tuple
 
 class GIN(nn.Module):
   """
-  Implementation of GATv2 using jraph.GraphNetwork.
+  Implementation of GIN(E) using jraph.GraphNetwork.
 
-  The implementation is based on the appendix in Battaglia et al. (2018) "Relational inductive biases, deep learning, and graph networks".
+  Adds edge features before aggregation (followed by a nonlinearity)
 
-  Incorporates global and edge features as in Wang2021
+  Concatenates global attributes to nodes before MLP
+
+  Sources: 
+  - https://arxiv.org/pdf/1905.12265
+  - https://pytorch-geometric.readthedocs.io/en/latest/generated/torch_geometric.nn.conv.GINEConv.html#torch_geometric.nn.conv.GINEConv
   """
   mlp: nn.Module
   epsilon: Optional[float] = None
   aggregate_edges_for_nodes_fn: nn.Module = jraph.segment_sum
+  kernel_init: nn.initializers.Initializer = nn.initializers.xavier_uniform()
 
   @nn.compact
-  def __call__(self, graph: jraph.GraphsTuple, **mlp_args) -> jraph.GraphsTuple:
+  def __call__(self, graph: jraph.GraphsTuple) -> jraph.GraphsTuple:
     def update_edge_fn(edges: jnp.ndarray,
                        sent_attributes: jnp.ndarray,
                        received_attributes: jnp.ndarray,
                        global_edge_attributes: jnp.ndarray
                        ) -> Tuple[jnp.ndarray, jnp.ndarray]:
-
-      # Handle edge/global attributes
-      if edges is not None or global_edge_attributes is not None:
-        if global_edge_attributes is None:
-          edge_attributes = edges
-        elif edges is None:
-          edge_attributes = global_edge_attributes
-        else:
-          edge_attributes = jnp.concatenate(
-              [edges, global_edge_attributes], axis=-1)
+      if edges is not None:
         embed_dim = sent_attributes.shape[-1]
-        W_e = nn.Dense(embed_dim, name='W_e')
-        sent_attributes += W_e(edge_attributes)
+        W_e = nn.Dense(embed_dim, kernel_init=self.kernel_init, name='W_e')
+        edges = mish(sent_attributes + W_e(edges))
+      else:
+        edges = sent_attributes
 
-      return sent_attributes
+      return edges
 
     def update_node_fn(nodes: jnp.ndarray,
                        sent_attributes: jnp.ndarray,
@@ -53,9 +51,12 @@ class GIN(nn.Module):
         epsilon = self.param('epsilon', nn.initializers.zeros, (1, 1))
       else:
         epsilon = self.epsilon
-
       epsilon = jnp.tile(epsilon, (*nodes.shape[:-2], 1, 1))
-      nodes = self.mlp((1 + epsilon) * nodes + received_attributes, **mlp_args)
+
+      nodes = (1 + epsilon) * nodes + received_attributes
+      if global_attributes is not None:
+        nodes = jnp.concatenate([nodes, global_attributes], axis=-1)
+      nodes = self.mlp(nodes)
 
       return nodes
 

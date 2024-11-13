@@ -18,7 +18,7 @@ def test():
       graph = GCN(embed_dim=8, add_self_edges=True, normalize=True)(graph)
       graph = jraph.GraphMapFeatures(embed_node_fn=nn.relu)(graph)
 
-      graph = GCN(embed_dim=2, normalize=True)(graph)
+      graph = GCN(embed_dim=2, normalize=False)(graph)
 
       return graph
 
@@ -62,8 +62,10 @@ def test():
 
   model = Model()
   club, accuracy = optimize_club(model, num_steps=15)
+  # print(accuracy)
   assert accuracy > 0.9
 
 
 if __name__ == '__main__':
+  # test()
   pytest.main([__file__])

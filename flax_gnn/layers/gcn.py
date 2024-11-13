@@ -35,28 +35,37 @@ class GCN(nn.Module):
                        received_attributes: jnp.ndarray,
                        global_edge_attributes: jnp.ndarray
                        ) -> jnp.ndarray:
-      sent_attributes = W(sent_attributes)
-
-      # Handle edge/global attributes
-      if edges is not None or global_edge_attributes is not None:
-        if global_edge_attributes is None:  # Edge only
-          edge_attributes = edges
-        elif edges is None:  # Global only
-          edge_attributes = global_edge_attributes
-        else:  # Edge and global
-          edge_attributes = jnp.concatenate(
-              [edges, global_edge_attributes], axis=-1)
-        sent_attributes += W_e(edge_attributes)
-
-      return sent_attributes
+      return (edges, sent_attributes)
 
     def update_node_fn(nodes: jnp.ndarray,
                        sent_attributes: jnp.ndarray,
                        received_attributes: jnp.ndarray,
                        global_attributes: jnp.ndarray) -> jnp.ndarray:
-      # Identity transformation - Node features are updated based on the aggregated messages from other nodes
-      # Some implementations apply a nonlinearity here, but we allow the user to do that somewhere else
-      return received_attributes
+      edges, received_attributes = received_attributes
+      nodes = W(received_attributes)
+
+      # Handle edge/global attributes
+      if edges is not None or global_attributes is not None:
+        if global_attributes is None:  # Edge only
+          edge_attributes = edges
+        elif edges is None:  # Global only
+          edge_attributes = global_attributes
+        else:  # Edge and global
+          edge_attributes = jnp.concatenate(
+              [edges, global_attributes], axis=-1)
+        nodes += W_e(edge_attributes)
+
+      # Scale by the square root of the node degrees
+      if self.normalize:
+        def count_edges(x): return jax.ops.segment_sum(
+            jnp.ones_like(graph.senders), x, nodes.shape[0])
+        sender_degrees = count_edges(graph.senders)
+        receiver_degrees = count_edges(graph.receivers)
+
+        nodes = nodes * jax.lax.rsqrt(jnp.maximum(sender_degrees, 1.0))[
+            :, None] * jax.lax.rsqrt(jnp.maximum(receiver_degrees, 1.0))[:, None]
+
+      return nodes
 
     network = jraph.GraphNetwork(
         update_edge_fn=update_edge_fn,
@@ -67,21 +76,8 @@ class GCN(nn.Module):
       graph_ = add_self_edges(graph)
     else:
       graph_ = graph
-    graph_ = network(graph_)
 
-    # Symmetric normalization
-    nodes = graph_.nodes
-    if self.normalize:
-      total_num_nodes = jax.tree.leaves(nodes)[0].shape[0]
-      sender_degree = jax.ops.segment_sum(
-          jnp.ones_like(graph_.senders), graph_.senders, total_num_nodes
-      ).clip(1, None)
-      receiver_degree = jax.ops.segment_sum(
-          jnp.ones_like(graph_.receivers), graph_.receivers, total_num_nodes
-      ).clip(1, None)
-      nodes = nodes / jnp.sqrt(sender_degree * receiver_degree)[..., None]
-
-    graph = graph._replace(nodes=nodes)
+    graph = graph._replace(nodes=network(graph_).nodes)
 
     return graph
 
