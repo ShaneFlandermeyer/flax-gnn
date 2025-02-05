@@ -15,34 +15,46 @@ def test():
 
     @nn.compact
     def __call__(self, graph: jraph.GraphsTuple) -> jraph.GraphsTuple:
-      graph = GIN(mlp=nn.Sequential([
-        nn.Dense(6),
-        nn.relu,
-        nn.Dense(6)
-      ]), epsilon=0.0)(graph)
-      graph = GIN(mlp=nn.Sequential([
-        nn.Dense(2),
-        nn.relu,
-        nn.Dense(2)
-      ]), epsilon=None)(graph)
+      nodes = GIN(mlp=nn.Sequential([
+          nn.Dense(8),
+          nn.relu,
+          nn.Dense(6)
+      ]), epsilon=0.0)(
+          nodes=graph.nodes,
+          edges=graph.edges,
+          globals_=graph.globals,
+          senders=graph.senders,
+          receivers=graph.receivers
+      )
+      nodes = GIN(mlp=nn.Sequential([
+          nn.Dense(2),
+          nn.relu,
+          nn.Dense(2)
+      ]), epsilon=None)(
+          nodes=nodes,
+          edges=graph.edges,
+          globals_=graph.globals,
+          senders=graph.senders,
+          receivers=graph.receivers
+      )
 
-      return graph
+      return nodes
 
   def optimize_club(network: nn.Module, num_steps: int) -> jnp.ndarray:
     karate_club = get_zacharys_karate_club()
     labels = get_ground_truth_assignments_for_zacharys_karate_club()
     network = Model()
-    params = network.init(jax.random.PRNGKey(42), get_zacharys_karate_club())
+    params = network.init(jax.random.PRNGKey(0), get_zacharys_karate_club())
 
     @jax.jit
     def predict(params: Dict) -> jnp.ndarray:
-      decoded_graph = network.apply(params, karate_club)
-      return jnp.argmax(decoded_graph.nodes, axis=1)
+      nodes = network.apply(params, karate_club)
+      return jnp.argmax(nodes, axis=1)
 
     @jax.jit
     def prediction_loss(params: Dict) -> jnp.ndarray:
-      decoded_graph = network.apply(params, karate_club)
-      log_prob = jax.nn.log_softmax(decoded_graph.nodes)
+      nodes = network.apply(params, karate_club)
+      log_prob = jax.nn.log_softmax(nodes)
       # The only two assignments we know a-priori are those of Mr. Hi (Node 0)
       # and John A (Node 33).
       return -(log_prob[0, 0] + log_prob[33, 1])
@@ -58,8 +70,8 @@ def test():
 
     @jax.jit
     def accuracy(params: Dict) -> jnp.ndarray:
-      decoded_graph = network.apply(params, karate_club)
-      return jnp.mean(jnp.argmax(decoded_graph.nodes, axis=1) == labels)
+      nodes = network.apply(params, karate_club)
+      return jnp.mean(jnp.argmax(nodes, axis=1) == labels)
 
     start = time.time()
     for i in range(num_steps):
@@ -69,6 +81,7 @@ def test():
 
   model = Model()
   club, accuracy = optimize_club(model, num_steps=15)
+  print(accuracy)
   assert accuracy > 0.9
 
 
