@@ -1,2 +1,3 @@
 # flax-gnn
-Graph Neural Networks in Jax with Flax + Jraph
+
+Permutation equivariant neural networks in Flax + Jraph
