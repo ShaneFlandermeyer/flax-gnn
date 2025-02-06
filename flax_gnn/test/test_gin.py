@@ -18,7 +18,7 @@ def test():
       nodes = GIN(mlp=nn.Sequential([
           nn.Dense(8),
           nn.relu,
-          nn.Dense(6)
+          nn.Dense(8)
       ]), epsilon=0.0)(
           nodes=graph.nodes,
           edges=graph.edges,
@@ -27,8 +27,6 @@ def test():
           receivers=graph.receivers
       )
       nodes = GIN(mlp=nn.Sequential([
-          nn.Dense(2),
-          nn.relu,
           nn.Dense(2)
       ]), epsilon=None)(
           nodes=nodes,
