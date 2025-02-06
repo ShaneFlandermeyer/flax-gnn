@@ -38,7 +38,6 @@ class GIN(nn.Module):
       edges = sent_attributes
 
     # Vmap aggregation function over batch dims
-    # TODO: Something going wrong here?
     leading_dims = nodes.shape[:-2]
     edge_aggr = jax.ops.segment_sum
     for _ in range(len(leading_dims)):
@@ -52,9 +51,12 @@ class GIN(nn.Module):
       epsilon = self.epsilon
     epsilon = jnp.tile(epsilon, (*nodes.shape[:-2], 1, 1))
     nodes = (1 + epsilon) * nodes + received_attributes
+    
+    
     if globals_ is not None:
       global_node_attributes = globals_.repeat(num_nodes, axis=-2)
       nodes = jnp.concatenate([nodes, global_node_attributes], axis=-1)
+    
     nodes = self.mlp(nodes)
 
     return nodes

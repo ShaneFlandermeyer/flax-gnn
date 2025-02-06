@@ -5,6 +5,7 @@ from typing import Optional
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
+from flax_gnn.layers.activations import mish
 
 
 class AttentionBlock(nn.Module):
@@ -28,8 +29,8 @@ class AttentionBlock(nn.Module):
 
     # Attention
     if self.pre_norm:
-      q_norm = nn.RMSNorm(dtype=self.dtype)(query)
-      k_norm = nn.RMSNorm(dtype=self.dtype)(key)
+      q_norm = nn.LayerNorm(dtype=self.dtype)(query)
+      k_norm = nn.LayerNorm(dtype=self.dtype)(key)
     else:
       q_norm = query
       k_norm = key
@@ -38,9 +39,9 @@ class AttentionBlock(nn.Module):
 
     # FFN
     ffn = nn.Sequential([
-        nn.RMSNorm() if self.pre_norm else lambda x: x,
+        nn.LayerNorm() if self.pre_norm else lambda x: x,
         nn.Dense(self.hidden_dim, dtype=self.dtype),
-        nn.gelu,
+        mish,
         nn.Dense(self.embed_dim, dtype=self.dtype),
     ], name='ffn')
 
