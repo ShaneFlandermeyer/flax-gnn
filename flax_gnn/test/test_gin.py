@@ -22,7 +22,7 @@ def test():
       ]), epsilon=0.0)(
           nodes=graph.nodes,
           edges=graph.edges,
-          globals_=graph.globals,
+          global_attributes=graph.globals,
           senders=graph.senders,
           receivers=graph.receivers
       )
@@ -31,7 +31,7 @@ def test():
       ]), epsilon=None)(
           nodes=nodes,
           edges=graph.edges,
-          globals_=graph.globals,
+          global_attributes=graph.globals,
           senders=graph.senders,
           receivers=graph.receivers
       )
