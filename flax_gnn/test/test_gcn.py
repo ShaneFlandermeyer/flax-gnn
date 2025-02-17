@@ -15,18 +15,16 @@ def test():
 
     @nn.compact
     def __call__(self, graph: jraph.GraphsTuple) -> jraph.GraphsTuple:
-      nodes = nn.Dense(8)(graph.nodes)
-      skip = nodes
-      nodes = GCN(embed_dim=8, normalize=True)(
-          nodes,
+      nodes = GCN(embed_dim=8, normalize=True, skip_connection=True)(
+          graph.nodes,
           graph.edges,
           graph.globals,
           graph.senders,
           graph.receivers
       )
-      nodes = nn.relu(nodes) + skip
+      nodes = nn.relu(nodes)
 
-      nodes = GCN(embed_dim=2, normalize=True)(
+      nodes = GCN(embed_dim=2, normalize=True, skip_connection=True)(
           nodes,
           graph.edges,
           graph.globals,
@@ -40,7 +38,7 @@ def test():
     karate_club = get_zacharys_karate_club()
     labels = get_ground_truth_assignments_for_zacharys_karate_club()
     network = Model()
-    params = network.init(jax.random.PRNGKey(42), get_zacharys_karate_club())
+    params = network.init(jax.random.PRNGKey(0), get_zacharys_karate_club())
 
     @jax.jit
     def predict(params: Dict) -> jnp.ndarray:
@@ -76,10 +74,10 @@ def test():
 
   model = Model()
   club, accuracy = optimize_club(model, num_steps=15)
-  print(accuracy)
+  # print(accuracy)
   assert accuracy > 0.9
 
 
 if __name__ == '__main__':
-  test()
+  # test()
   pytest.main([__file__])

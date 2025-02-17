@@ -15,6 +15,7 @@ class GCN(nn.Module):
   """
   embed_dim: int
   normalize: bool = True
+  skip_connection: bool = True
 
   @nn.compact
   def __call__(self,
@@ -69,7 +70,11 @@ class GCN(nn.Module):
     ####################################
     # Node update
     ####################################
-    nodes = edge_aggr(edges, receivers, num_nodes)
+    if self.skip_connection:
+      skip = nodes
+      nodes = edge_aggr(edges, receivers, num_nodes) + skip
+    else:
+      nodes = edge_aggr(edges, receivers, num_nodes)
     return nodes
 
 
