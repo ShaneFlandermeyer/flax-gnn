@@ -1,11 +1,7 @@
 import time
-from typing import Callable, Optional, Tuple
 import flax.linen as nn
-import jraph
-from flax_gnn.util import add_self_edges
 import jax
 import jax.numpy as jnp
-from einops import rearrange
 from flax_gnn.layers.activations import mish
 
 
@@ -18,68 +14,63 @@ class GCN(nn.Module):
   Incorporates global and edge features in the node update step
   """
   embed_dim: int
-  add_self_edges: bool = False
   normalize: bool = True
-  dtype: jnp.dtype = jnp.float32
-  kernel_init: nn.initializers.Initializer = nn.initializers.xavier_uniform()
 
   @nn.compact
-  def __call__(self, graph: jraph.GraphsTuple) -> jraph.GraphsTuple:
-    W = nn.Dense(self.embed_dim, kernel_init=self.kernel_init,
-                 dtype=self.dtype)
-    W_e = nn.Dense(self.embed_dim, kernel_init=self.kernel_init,
-                   dtype=self.dtype)
+  def __call__(self,
+               nodes: jax.Array,
+               edge_features: jax.Array,
+               global_features: jax.Array,
+               senders: jax.Array,
+               receivers: jax.Array
+               ) -> jax.Array:
+    num_nodes = nodes.shape[-2]
+    num_edges = senders.shape[-1]
 
-    def update_edge_fn(edges: jnp.ndarray,
-                       sent_attributes: jnp.ndarray,
-                       received_attributes: jnp.ndarray,
-                       global_edge_attributes: jnp.ndarray
-                       ) -> jnp.ndarray:
-      return (edges, sent_attributes)
+    ####################################
+    # Edge update
+    ####################################
+    W = nn.Dense(self.embed_dim, name='W')
+    nodes = W(nodes)
 
-    def update_node_fn(nodes: jnp.ndarray,
-                       sent_attributes: jnp.ndarray,
-                       received_attributes: jnp.ndarray,
-                       global_attributes: jnp.ndarray) -> jnp.ndarray:
-      edges, received_attributes = received_attributes
-      nodes = W(received_attributes)
-
-      # Handle edge/global attributes
-      if edges is not None or global_attributes is not None:
-        if global_attributes is None:  # Edge only
-          edge_attributes = edges
-        elif edges is None:  # Global only
-          edge_attributes = global_attributes
-        else:  # Edge and global
-          edge_attributes = jnp.concatenate(
-              [edges, global_attributes], axis=-1)
-        nodes += W_e(edge_attributes)
-
-      # Scale by the square root of the node degrees
-      if self.normalize:
-        def count_edges(x): return jax.ops.segment_sum(
-            jnp.ones_like(graph.senders), x, nodes.shape[0])
-        sender_degrees = count_edges(graph.senders)
-        receiver_degrees = count_edges(graph.receivers)
-
-        nodes = nodes * jax.lax.rsqrt(jnp.maximum(sender_degrees, 1.0))[
-            :, None] * jax.lax.rsqrt(jnp.maximum(receiver_degrees, 1.0))[:, None]
-
-      return nodes
-
-    network = jraph.GraphNetwork(
-        update_edge_fn=update_edge_fn,
-        update_node_fn=update_node_fn,
-        aggregate_edges_for_nodes_fn=jraph.segment_sum,
+    sent_attributes = jnp.take_along_axis(
+        nodes, senders[..., None], axis=-2
     )
-    if self.add_self_edges:
-      graph_ = add_self_edges(graph)
+    W_e = nn.Dense(self.embed_dim, name='W_e')
+    if edge_features is None and global_features is None:
+      edges = sent_attributes
+    elif edge_features is not None and global_features is None:
+      edges = mish(sent_attributes + W_e(edge_features))
+    elif edge_features is None and global_features is not None:
+      edge_features = global_features.repeat(num_edges, axis=-2)
+      edges = mish(sent_attributes + W_e(edge_features))
     else:
-      graph_ = graph
+      edge_features = jnp.concatenate(
+          [edge_features, global_features.repeat(num_edges, axis=-2)], axis=-1
+      )
+      edges = mish(sent_attributes + W_e(edge_features))
 
-    graph = graph._replace(nodes=network(graph_).nodes)
+    #####################################
+    # Aggregate edges
+    #####################################
+    leading_dims = nodes.shape[:-2]
+    edge_aggr = jax.ops.segment_sum
+    for _ in range(len(leading_dims)):
+      edge_aggr = jax.vmap(edge_aggr, in_axes=(0, 0, None))
 
-    return graph
+    if self.normalize:
+      in_degree = edge_aggr(
+          jnp.ones_like(receivers), receivers, num_nodes
+      ).astype(float)
+      edges *= jax.lax.rsqrt(
+          in_degree[senders].clip(1, None) * in_degree[receivers].clip(1, None)
+      )[..., None]
+
+    ####################################
+    # Node update
+    ####################################
+    nodes = edge_aggr(edges, receivers, num_nodes)
+    return nodes
 
 
 if __name__ == '__main__':
