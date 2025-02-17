@@ -12,7 +12,8 @@ class AttentionBlock(nn.Module):
   embed_dim: int
   hidden_dim: int
   num_heads: int
-  pre_norm: bool = True
+  norm_qk: bool = True
+  kernel_init: nn.initializers.Initializer = nn.initializers.xavier_uniform()
   dtype: jnp.dtype = jnp.float32
 
   @nn.compact
@@ -28,21 +29,29 @@ class AttentionBlock(nn.Module):
     mask = nn.make_attention_mask(query_mask, key_mask)
 
     # Attention
-    if self.pre_norm:
+    if self.norm_qk:
       q_norm = nn.LayerNorm(dtype=self.dtype)(query)
       k_norm = nn.LayerNorm(dtype=self.dtype)(key)
     else:
       q_norm = query
       k_norm = key
-    mha = nn.MultiHeadAttention(num_heads=self.num_heads, dtype=self.dtype)
+    mha = nn.MultiHeadAttention(
+        num_heads=self.num_heads,
+        kernel_init=self.kernel_init,
+        dtype=self.dtype
+    )
     x = query + mha(inputs_q=q_norm, inputs_kv=k_norm, mask=mask)
 
     # FFN
     ffn = nn.Sequential([
-        nn.LayerNorm() if self.pre_norm else lambda x: x,
-        nn.Dense(self.hidden_dim, dtype=self.dtype),
+        nn.LayerNorm(),
+        nn.Dense(
+            self.hidden_dim, kernel_init=self.kernel_init, dtype=self.dtype
+        ),
         mish,
-        nn.Dense(self.embed_dim, dtype=self.dtype),
+        nn.Dense(
+            self.embed_dim, kernel_init=self.kernel_init, dtype=self.dtype
+        ),
     ], name='ffn')
 
     x = x + ffn(x)
@@ -58,8 +67,9 @@ class PMA(nn.Module):
   def __call__(self, x: jax.Array, valid: jax.Array = None):
     batch_dims, embed_dim = x.shape[:-2], x.shape[-1]
 
-    S = self.param('S', nn.initializers.xavier_normal(),
-                   (self.num_seeds, embed_dim))
+    S = self.param(
+        'S', nn.initializers.xavier_normal(), (self.num_seeds, embed_dim)
+    )
     S = jnp.tile(S, [*batch_dims, 1, 1])
 
     x = self.attention_base(
