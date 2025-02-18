@@ -62,14 +62,13 @@ class AttentionBlock(nn.Module):
 class PMA(nn.Module):
   attention_base: nn.Module
   num_seeds: int = 1
+  seed_init: nn.initializers.Initializer = nn.initializers.xavier_normal()
 
   @nn.compact
   def __call__(self, x: jax.Array, valid: jax.Array = None):
     batch_dims, embed_dim = x.shape[:-2], x.shape[-1]
 
-    S = self.param(
-        'S', nn.initializers.xavier_normal(), (self.num_seeds, embed_dim)
-    )
+    S = self.param('S', self.seed_init, (self.num_seeds, embed_dim))
     S = jnp.tile(S, [*batch_dims, 1, 1])
 
     x = self.attention_base(
