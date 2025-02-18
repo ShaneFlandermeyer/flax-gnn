@@ -3,6 +3,7 @@ import flax.linen as nn
 import jax
 import jax.numpy as jnp
 from flax_gnn.layers.activations import mish
+from typing import Callable
 
 
 class GCN(nn.Module):
@@ -15,7 +16,8 @@ class GCN(nn.Module):
   """
   embed_dim: int
   normalize: bool = True
-  skip_connection: bool = True
+  self_edges: bool = False
+  kernel_init: nn.initializers.Initializer = nn.initializers.xavier_uniform()
 
   @nn.compact
   def __call__(self,
@@ -31,13 +33,13 @@ class GCN(nn.Module):
     ####################################
     # Node update
     ####################################
-    W = nn.Dense(self.embed_dim, name='W')
+    W = nn.Dense(self.embed_dim, kernel_init=self.kernel_init, name='W')
     nodes = W(nodes)
 
     ####################################
     # Edge update
     ####################################
-    W_e = nn.Dense(self.embed_dim, name='W_e')
+    W_e = nn.Dense(self.embed_dim, kernel_init=self.kernel_init, name='W_e')
     sent_attributes = jnp.take_along_axis(nodes, senders[..., None], axis=-2)
     if edge_features is None and global_features is None:
       edges = sent_attributes
@@ -64,30 +66,18 @@ class GCN(nn.Module):
       in_degree = edge_aggr(
           jnp.ones_like(receivers), receivers, num_nodes
       ).astype(float)
+      send_degree = jnp.take_along_axis(in_degree, senders, axis=-1)
+      recv_degree = jnp.take_along_axis(in_degree, receivers, axis=-1)
+      if self.self_edges:
+        send_degree += 1
+        recv_degree += 1
       edges *= jax.lax.rsqrt(
-          in_degree[senders].clip(1, None) * in_degree[receivers].clip(1, None)
+          send_degree.clip(1, None) * recv_degree.clip(1, None)
       )[..., None]
 
-    if self.skip_connection:
-      skip = nodes
-      nodes = edge_aggr(edges, receivers, num_nodes) + skip
+    if self.self_edges:
+      nodes = edge_aggr(edges, receivers, num_nodes) + nodes
     else:
       nodes = edge_aggr(edges, receivers, num_nodes)
+
     return nodes
-
-
-if __name__ == '__main__':
-  from flax_gnn.test.util import build_toy_graph
-
-  graph = build_toy_graph()
-  graph = graph._replace(globals=None)
-  model = GCN(embed_dim=8, num_heads=2, add_self_edges=True)
-  params = model.init(jax.random.PRNGKey(42), graph)
-
-  apply = jax.jit(model.apply)
-  start = time.time()
-  decoded_graph = apply(params, graph)
-  print(time.time() - start)
-  start = time.time()
-  decoded_graph = apply(params, graph)
-  print(time.time() - start)
