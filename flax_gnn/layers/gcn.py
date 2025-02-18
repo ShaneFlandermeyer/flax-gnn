@@ -29,15 +29,16 @@ class GCN(nn.Module):
     num_edges = senders.shape[-1]
 
     ####################################
-    # Edge update
+    # Node update
     ####################################
     W = nn.Dense(self.embed_dim, name='W')
     nodes = W(nodes)
 
-    sent_attributes = jnp.take_along_axis(
-        nodes, senders[..., None], axis=-2
-    )
+    ####################################
+    # Edge update
+    ####################################
     W_e = nn.Dense(self.embed_dim, name='W_e')
+    sent_attributes = jnp.take_along_axis(nodes, senders[..., None], axis=-2)
     if edge_features is None and global_features is None:
       edges = sent_attributes
     elif edge_features is not None and global_features is None:
@@ -67,9 +68,6 @@ class GCN(nn.Module):
           in_degree[senders].clip(1, None) * in_degree[receivers].clip(1, None)
       )[..., None]
 
-    ####################################
-    # Node update
-    ####################################
     if self.skip_connection:
       skip = nodes
       nodes = edge_aggr(edges, receivers, num_nodes) + skip
