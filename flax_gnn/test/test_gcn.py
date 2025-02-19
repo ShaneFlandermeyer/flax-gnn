@@ -16,31 +16,18 @@ def test():
 
     @nn.compact
     def __call__(self, graph: jraph.GraphsTuple) -> jraph.GraphsTuple:
-      nodes = GCN(
-          embed_dim=8,
-          normalize=True,
-          self_edges=True,
-      )(
-          graph.nodes,
-          graph.edges,
-          graph.globals,
-          graph.senders,
-          graph.receivers
+      graph = dict(
+          node_features=graph.nodes,
+          edge_features=graph.edges,
+          global_features=graph.globals,
+          senders=graph.senders,
+          receivers=graph.receivers
       )
+      graph = GCN(embed_dim=8, normalize=True, self_edges=True)(**graph)
+      graph['node_features'] = nn.relu(graph['node_features'])
+      graph = GCN(embed_dim=2, normalize=True, self_edges=True)(**graph)
 
-      nodes = GCN(
-          embed_dim=2,
-          normalize=True,
-          self_edges=True,
-      )(
-          nodes,
-          graph.edges,
-          graph.globals,
-          graph.senders,
-          graph.receivers
-      )
-
-      return nodes
+      return graph['node_features']
 
   def optimize_club(network: nn.Module, num_steps: int, seed) -> jnp.ndarray:
     karate_club = get_zacharys_karate_club()
@@ -80,13 +67,13 @@ def test():
 
     return predict(params), accuracy(params).item()
 
-  for i in range(100):
+  for i in range(5):
     model = Model()
-    club, accuracy = optimize_club(model, num_steps=20, seed=i)
+    club, accuracy = optimize_club(model, num_steps=25, seed=i)
     print(accuracy)
-    # assert accuracy > 0.9
+    assert accuracy > 0.9
 
 
 if __name__ == '__main__':
-  test()
-  # pytest.main([__file__])
+  # test()
+  pytest.main([__file__])

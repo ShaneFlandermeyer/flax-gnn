@@ -21,49 +21,51 @@ class GCN(nn.Module):
 
   @nn.compact
   def __call__(self,
-               nodes: jax.Array,
+               node_features: jax.Array,
                edge_features: jax.Array,
                global_features: jax.Array,
                senders: jax.Array,
                receivers: jax.Array
                ) -> jax.Array:
-    num_nodes = nodes.shape[-2]
+    num_nodes = node_features.shape[-2]
     num_edges = senders.shape[-1]
 
     ####################################
     # Node update
     ####################################
     W = nn.Dense(self.embed_dim, kernel_init=self.kernel_init, name='W')
-    nodes = W(nodes)
+    node_features = W(node_features)
 
     ####################################
     # Edge update
     ####################################
     W_e = nn.Dense(self.embed_dim, kernel_init=self.kernel_init, name='W_e')
-    sent_attributes = jnp.take_along_axis(nodes, senders[..., None], axis=-2)
+    send_nodes = jnp.take_along_axis(
+        node_features, senders[..., None], axis=-2
+    )
     if edge_features is None and global_features is None:
-      edges = sent_attributes
+      edges = send_nodes
     elif edge_features is not None and global_features is None:
-      edges = mish(sent_attributes + W_e(edge_features))
+      edges = mish(send_nodes + W_e(edge_features))
     elif edge_features is None and global_features is not None:
       edge_features = global_features.repeat(num_edges, axis=-2)
-      edges = mish(sent_attributes + W_e(edge_features))
+      edges = mish(send_nodes + W_e(edge_features))
     else:
       edge_features = jnp.concatenate(
           [edge_features, global_features.repeat(num_edges, axis=-2)], axis=-1
       )
-      edges = mish(sent_attributes + W_e(edge_features))
+      edges = mish(send_nodes + W_e(edge_features))
 
     #####################################
     # Aggregate edges
     #####################################
-    leading_dims = nodes.shape[:-2]
-    edge_aggr = jax.ops.segment_sum
+    leading_dims = node_features.shape[:-2]
+    aggregate_edges = jax.ops.segment_sum
     for _ in range(len(leading_dims)):
-      edge_aggr = jax.vmap(edge_aggr, in_axes=(0, 0, None))
+      aggregate_edges = jax.vmap(aggregate_edges, in_axes=(0, 0, None))
 
     if self.normalize:
-      in_degree = edge_aggr(
+      in_degree = aggregate_edges(
           jnp.ones_like(receivers), receivers, num_nodes
       ).astype(float)
       send_degree = jnp.take_along_axis(in_degree, senders, axis=-1)
@@ -76,8 +78,16 @@ class GCN(nn.Module):
       )[..., None]
 
     if self.self_edges:
-      nodes = edge_aggr(edges, receivers, num_nodes) + nodes
+      node_features = node_features + aggregate_edges(
+          edges, receivers, num_nodes
+      )
     else:
-      nodes = edge_aggr(edges, receivers, num_nodes)
+      node_features = aggregate_edges(edges, receivers, num_nodes)
 
-    return nodes
+    return dict(
+        node_features=node_features,
+        edge_features=edge_features,
+        global_features=global_features,
+        senders=senders,
+        receivers=receivers
+    )
