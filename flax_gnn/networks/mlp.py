@@ -7,9 +7,7 @@ def mlp(
     embed_dim: int,
     num_layers: int,
     activation: nn.activation = mish,
-    kernel_init: nn.initializers.Initializer = nn.initializers.truncated_normal(
-        0.02
-    )
+    kernel_init: nn.initializers.Initializer = nn.initializers.xavier_uniform(),
 ) -> nn.Module:
   return nn.Sequential([
       NormedLinear(embed_dim, activation=activation, kernel_init=kernel_init) for _ in range(num_layers)
