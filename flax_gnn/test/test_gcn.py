@@ -24,7 +24,7 @@ def test():
           receivers=graph.receivers
       )
       graph = GCN(embed_dim=8, normalize=True, self_edges=True)(**graph)
-      graph['node_features'] = nn.relu(graph['node_features'])
+      # graph['node_features'] = nn.relu(graph['node_features'])
       graph = GCN(embed_dim=2, normalize=True, self_edges=True)(**graph)
 
       return graph['node_features']

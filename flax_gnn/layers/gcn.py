@@ -3,7 +3,7 @@ import flax.linen as nn
 import jax
 import jax.numpy as jnp
 from flax_gnn.layers.activations import mish
-from typing import Callable
+from typing import Callable, Optional
 
 
 class GCN(nn.Module):
@@ -17,8 +17,9 @@ class GCN(nn.Module):
   embed_dim: int
   normalize: bool = True
   self_edges: bool = False
-  kernel_init: nn.initializers.Initializer = nn.initializers.xavier_uniform()
-
+  node_update_fn: Optional[Callable] = None
+  edge_update_fn: Optional[Callable] = None
+  
   @nn.compact
   def __call__(self,
                node_features: jax.Array,
@@ -33,13 +34,19 @@ class GCN(nn.Module):
     ####################################
     # Node update
     ####################################
-    W = nn.Dense(self.embed_dim, kernel_init=self.kernel_init, name='W')
+    if self.node_update_fn is None:
+      W = nn.Dense(self.embed_dim, name='W')
+    else:
+      W = self.node_update_fn
     node_features = W(node_features)
 
     ####################################
     # Edge update
     ####################################
-    W_e = nn.Dense(self.embed_dim, kernel_init=self.kernel_init, name='W_e')
+    if self.edge_update_fn is None:
+      W_e = nn.Dense(self.embed_dim, name='W_e')
+    else:
+      W_e = self.edge_update_fn
     send_nodes = jnp.take_along_axis(
         node_features, senders[..., None], axis=-2
     )

@@ -6,7 +6,7 @@ import jax
 import optax
 from flax_gnn.test.util import get_ground_truth_assignments_for_zacharys_karate_club, get_zacharys_karate_club
 import jax.numpy as jnp
-from flax_gnn.layers.gat import GATv2
+from flax_gnn.layers.gatv2 import GATv2
 import pytest
 
 
@@ -15,28 +15,47 @@ def test():
 
     @nn.compact
     def __call__(self, graph: jraph.GraphsTuple) -> jraph.GraphsTuple:
-      graph = GATv2(embed_dim=10, num_heads=2, add_self_edges=True)(graph)
-      graph = jraph.GraphMapFeatures(embed_node_fn=nn.relu)(graph)
+      graph = dict(
+          node_features=graph.nodes,
+          edge_features=graph.edges,
+          global_features=graph.globals,
+          senders=graph.senders,
+          receivers=graph.receivers
+      )
 
-      graph = GATv2(embed_dim=2, num_heads=1)(graph)
+      graph = GATv2(
+          embed_dim=8,
+          num_heads=1,
+          add_self_edges=True,
+          share_weights=True,
+      )(**graph)
+
+      graph = GATv2(
+        embed_dim=2, 
+        num_heads=1,
+        add_self_edges=True,
+        share_weights=True,
+        )(**graph)
 
       return graph
 
-  def optimize_club(network: nn.Module, num_steps: int) -> jnp.ndarray:
+  def optimize_club(
+      network: nn.Module, num_steps: int, seed: int = 0
+  ) -> jnp.ndarray:
     karate_club = get_zacharys_karate_club()
     labels = get_ground_truth_assignments_for_zacharys_karate_club()
     network = Model()
-    params = network.init(jax.random.PRNGKey(42), get_zacharys_karate_club())
+    params = network.init(jax.random.PRNGKey(seed), get_zacharys_karate_club())
 
     @jax.jit
     def predict(params: Dict) -> jnp.ndarray:
       decoded_graph = network.apply(params, karate_club)
-      return jnp.argmax(decoded_graph.nodes, axis=1)
+      return jnp.argmax(decoded_graph['node_features'], axis=1)
 
     @jax.jit
     def prediction_loss(params: Dict) -> jnp.ndarray:
       decoded_graph = network.apply(params, karate_club)
-      log_prob = jax.nn.log_softmax(decoded_graph.nodes)
+      log_prob = jax.nn.log_softmax(decoded_graph['node_features'])
       # The only two assignments we know a-priori are those of Mr. Hi (Node 0)
       # and John A (Node 33).
       return -(log_prob[0, 0] + log_prob[33, 1])
@@ -53,7 +72,9 @@ def test():
     @jax.jit
     def accuracy(params: Dict) -> jnp.ndarray:
       decoded_graph = network.apply(params, karate_club)
-      return jnp.mean(jnp.argmax(decoded_graph.nodes, axis=1) == labels)
+      return jnp.mean(
+          jnp.argmax(decoded_graph['node_features'], axis=1) == labels
+      )
 
     start = time.time()
     for i in range(num_steps):
@@ -61,11 +82,13 @@ def test():
     print("Training time: ", time.time() - start)
     return predict(params), accuracy(params).item()
 
-  model = Model()
-  club, accuracy = optimize_club(model, num_steps=15)
-  assert accuracy > 0.9
+  for i in range(5):
+    model = Model()
+    club, accuracy = optimize_club(model, num_steps=15, seed=i)
+    print(accuracy)
+    assert accuracy > 0.9
 
 
 if __name__ == '__main__':
-  test()
-  # pytest.main([__file__])
+  # test()
+  pytest.main([__file__])

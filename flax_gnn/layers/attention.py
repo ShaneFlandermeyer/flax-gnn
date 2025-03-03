@@ -29,18 +29,13 @@ class AttentionBlock(nn.Module):
     mask = nn.make_attention_mask(query_mask, key_mask)
 
     # Attention
-    if self.norm_qk:
-      q_norm = nn.LayerNorm(dtype=self.dtype)(query)
-      k_norm = nn.LayerNorm(dtype=self.dtype)(key)
-    else:
-      q_norm = query
-      k_norm = key
     mha = nn.MultiHeadAttention(
         num_heads=self.num_heads,
         kernel_init=self.kernel_init,
-        dtype=self.dtype
+        dtype=self.dtype,
+        normalize_qk=self.norm_qk
     )
-    x = query + mha(inputs_q=q_norm, inputs_kv=k_norm, mask=mask)
+    x = query + mha(inputs_q=query, inputs_kv=key, mask=mask)
 
     # FFN
     ffn = nn.Sequential([
