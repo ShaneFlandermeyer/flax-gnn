@@ -19,7 +19,7 @@ class GCN(nn.Module):
   self_edges: bool = False
   node_update_fn: Optional[Callable] = None
   edge_update_fn: Optional[Callable] = None
-  
+
   @nn.compact
   def __call__(self,
                node_features: jax.Array,
@@ -38,6 +38,10 @@ class GCN(nn.Module):
       W = nn.Dense(self.embed_dim, name='W')
     else:
       W = self.node_update_fn
+    if global_features is not None:
+      node_features = jnp.concatenate(
+          [node_features, global_features.repeat(num_nodes, axis=-2)], axis=-1
+      )
     node_features = W(node_features)
 
     ####################################
@@ -50,29 +54,21 @@ class GCN(nn.Module):
     send_nodes = jnp.take_along_axis(
         node_features, senders[..., None], axis=-2
     )
-    if edge_features is None and global_features is None:
-      edges = send_nodes
-    elif edge_features is not None and global_features is None:
-      edges = mish(send_nodes + W_e(edge_features))
-    elif edge_features is None and global_features is not None:
-      edge_features = global_features.repeat(num_edges, axis=-2)
+    if edge_features is not None:
       edges = mish(send_nodes + W_e(edge_features))
     else:
-      edge_features = jnp.concatenate(
-          [edge_features, global_features.repeat(num_edges, axis=-2)], axis=-1
-      )
-      edges = mish(send_nodes + W_e(edge_features))
+      edges = send_nodes
 
     #####################################
     # Aggregate edges
     #####################################
     leading_dims = node_features.shape[:-2]
-    aggregate_edges = jax.ops.segment_sum
+    segment_sum = jax.ops.segment_sum
     for _ in range(len(leading_dims)):
-      aggregate_edges = jax.vmap(aggregate_edges, in_axes=(0, 0, None))
+      segment_sum = jax.vmap(segment_sum, in_axes=(0, 0, None))
 
     if self.normalize:
-      in_degree = aggregate_edges(
+      in_degree = segment_sum(
           jnp.ones_like(receivers), receivers, num_nodes
       ).astype(float)
       send_degree = jnp.take_along_axis(in_degree, senders, axis=-1)
@@ -85,11 +81,11 @@ class GCN(nn.Module):
       )[..., None]
 
     if self.self_edges:
-      node_features = node_features + aggregate_edges(
+      node_features = node_features + segment_sum(
           edges, receivers, num_nodes
       )
     else:
-      node_features = aggregate_edges(edges, receivers, num_nodes)
+      node_features = segment_sum(edges, receivers, num_nodes)
 
     return dict(
         node_features=node_features,
