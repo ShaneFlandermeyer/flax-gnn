@@ -46,6 +46,9 @@ class GATv2(nn.Module):
             [edge_features, self_edge_features], axis=0
         )
 
+    ############################
+    # Edge update
+    ############################
     if edge_features is not None or global_features is not None:
       if edge_features is None:
         edge_features = global_features.repeat(num_edges, axis=-2)
@@ -62,22 +65,22 @@ class GATv2(nn.Module):
     else:
       W_s = nn.Dense(self.embed_dim, name='W_s', kernel_init=self.kernel_init)
       W_r = nn.Dense(self.embed_dim, name='W_r', kernel_init=self.kernel_init)
-      send_nodes = W_s(
-          jnp.take_along_axis(node_features, senders[..., None], axis=-2)
+      send_nodes = jnp.take_along_axis(
+          W_s(node_features), senders[..., None], axis=-2
       )
-      recv_nodes = W_r(
-          jnp.take_along_axis(node_features, receivers[..., None], axis=-2)
+      recv_nodes = jnp.take_along_axis(
+          W_r(node_features), receivers[..., None], axis=-2
       )
     x = send_nodes + recv_nodes
 
     if edge_features is not None:
-      W_e = nn.Dense(
-          self.embed_dim, name='W_e', kernel_init=self.kernel_init
-      )
+      W_e = nn.Dense(self.embed_dim, name='W_e', kernel_init=self.kernel_init)
       x += W_e(edge_features)
-    x = jax.nn.leaky_relu(x)
+    x = mish(x)
 
-    # Multi-head attention weights
+    ############################
+    # Attention
+    ############################
     x = rearrange(x, '... (h d) -> ... h d', h=self.num_heads)
     a = self.param(
         'a',
@@ -91,7 +94,9 @@ class GATv2(nn.Module):
       segment_softmax = jax.vmap(segment_softmax, in_axes=(0, 0, None))
     attn_weights = segment_softmax(attn_logits, receivers, num_nodes)
 
-    # Node update
+    ############################
+    # Node Update
+    ############################
     segment_sum = jax.ops.segment_sum
     for _ in range(len(leading_dims)):
       segment_sum = jax.vmap(segment_sum, in_axes=(0, 0, None))
