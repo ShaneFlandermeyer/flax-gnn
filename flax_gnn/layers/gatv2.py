@@ -39,41 +39,36 @@ class GATv2(nn.Module):
       senders = jnp.concatenate([senders, jnp.arange(num_nodes)], axis=0)
       receivers = jnp.concatenate([receivers, jnp.arange(num_nodes)], axis=0)
       if edge_features is not None:
+        self_edge_features = jnp.zeros(
+            (leading_dims, num_nodes, edge_features.shape[-1])
+        )
         edge_features = jnp.concatenate(
-            [
-                edge_features,
-                jnp.zeros((leading_dims, num_nodes, edge_features.shape[-1])),
-            ],
-            axis=0
+            [edge_features, self_edge_features], axis=0
         )
 
     if edge_features is not None or global_features is not None:
       if edge_features is None:
         edge_features = global_features.repeat(num_edges, axis=-2)
       elif edge_features is not None and global_features is not None:
-        edge_features = jnp.concatenate([
-            edge_features, global_features.repeat(num_edges, axis=-2)
-        ], axis=-1)
+        edge_features = jnp.concatenate(
+            [edge_features, global_features.repeat(num_edges, axis=-2)], axis=-1
+        )
 
     if self.share_weights:
       W = nn.Dense(self.embed_dim, name='W', kernel_init=self.kernel_init)
       nodes = W(node_features)
       send_nodes = jnp.take_along_axis(nodes, senders[..., None], axis=-2)
-      recv_nodes = jnp.take_along_axis(
-          nodes, receivers[..., None], axis=-2
-      )
-      x = send_nodes + recv_nodes
+      recv_nodes = jnp.take_along_axis(nodes, receivers[..., None], axis=-2)
     else:
       W_s = nn.Dense(self.embed_dim, name='W_s', kernel_init=self.kernel_init)
       W_r = nn.Dense(self.embed_dim, name='W_r', kernel_init=self.kernel_init)
-
-      send_nodes = W_s(jnp.take_along_axis(
-          node_features, senders[..., None], axis=-2
-      ))
-      recv_nodes = W_r(jnp.take_along_axis(
-          node_features, receivers[..., None], axis=-2
-      ))
-      x = send_nodes + recv_nodes
+      send_nodes = W_s(
+          jnp.take_along_axis(node_features, senders[..., None], axis=-2)
+      )
+      recv_nodes = W_r(
+          jnp.take_along_axis(node_features, receivers[..., None], axis=-2)
+      )
+    x = send_nodes + recv_nodes
 
     if edge_features is not None:
       W_e = nn.Dense(
