@@ -29,22 +29,34 @@ class GATv2(nn.Module):
                edge_features: jax.Array,
                global_features: jax.Array,
                senders: jax.Array,
-               receivers: jax.Array
+               receivers: jax.Array,
                ) -> jax.Array:
+    ############################
+    # Pre-processing
+    ############################
     num_nodes = node_features.shape[-2]
     num_edges = senders.shape[-1]
     leading_dims = node_features.shape[:-2]
 
     if self.add_self_edges:
-      senders = jnp.concatenate([senders, jnp.arange(num_nodes)], axis=0)
-      receivers = jnp.concatenate([receivers, jnp.arange(num_nodes)], axis=0)
+      num_edges += num_nodes
+      node_inds = jnp.arange(num_nodes)
+      node_inds = jnp.broadcast_to(node_inds, leading_dims + (num_nodes,))
+      senders = jnp.concatenate([senders, node_inds], axis=-1)
+      receivers = jnp.concatenate([receivers, node_inds], axis=-1)
       if edge_features is not None:
         self_edge_features = jnp.zeros(
-            (leading_dims, num_nodes, edge_features.shape[-1])
+            (*node_inds.shape, edge_features.shape[-1])
         )
         edge_features = jnp.concatenate(
-            [edge_features, self_edge_features], axis=0
+            [edge_features, self_edge_features], axis=-2
         )
+
+    segment_softmax = jraph.segment_softmax
+    segment_sum = jax.ops.segment_sum
+    for _ in range(len(leading_dims)):
+      segment_softmax = jax.vmap(segment_softmax, in_axes=(0, 0, None))
+      segment_sum = jax.vmap(segment_sum, in_axes=(0, 0, None))
 
     ############################
     # Edge update
@@ -89,21 +101,15 @@ class GATv2(nn.Module):
     )
     a = jnp.tile(a, (*x.shape[:-2], 1, 1))
     attn_logits = jnp.sum(x * a, axis=-1, keepdims=True)
-    segment_softmax = jraph.segment_softmax
-    for _ in range(len(leading_dims)):
-      segment_softmax = jax.vmap(segment_softmax, in_axes=(0, 0, None))
     attn_weights = segment_softmax(attn_logits, receivers, num_nodes)
 
     ############################
     # Node Update
     ############################
-    segment_sum = jax.ops.segment_sum
-    for _ in range(len(leading_dims)):
-      segment_sum = jax.vmap(segment_sum, in_axes=(0, 0, None))
     edges = rearrange(
         send_nodes, '... (h d) -> ... h d', h=self.num_heads
     )
-    edges = attn_weights * edges
+    edges = jnp.nan_to_num(attn_weights * edges)
     edges = rearrange(edges, '... h d -> ... (h d)')
     new_nodes = segment_sum(edges, receivers, num_nodes)
 
@@ -112,7 +118,7 @@ class GATv2(nn.Module):
         edge_features=edge_features,
         global_features=global_features,
         senders=senders,
-        receivers=receivers
+        receivers=receivers,
     )
 
 

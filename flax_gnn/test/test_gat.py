@@ -27,15 +27,15 @@ def test():
           embed_dim=8,
           num_heads=1,
           add_self_edges=True,
-          share_weights=True,
+          share_weights=False,
       )(**graph)
 
       graph = GATv2(
-        embed_dim=2, 
-        num_heads=1,
-        add_self_edges=True,
-        share_weights=True,
-        )(**graph)
+          embed_dim=2,
+          num_heads=1,
+          add_self_edges=True,
+          share_weights=True,
+      )(**graph)
 
       return graph
 
