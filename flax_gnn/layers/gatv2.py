@@ -64,7 +64,7 @@ class GATv2(nn.Module):
       recv_nodes = W_r(node_features)
     send_edges = jnp.take_along_axis(send_nodes, senders[..., None], axis=-2)
     recv_edges = jnp.take_along_axis(recv_nodes, receivers[..., None], axis=-2)
-
+    x = send_edges + recv_edges
 
     if edge_features is not None or global_features is not None:
       if edge_features is None:
@@ -82,13 +82,12 @@ class GATv2(nn.Module):
       )
       receivers = jnp.concatenate([receivers, node_inds], axis=-1)
       send_edges = jnp.concatenate([send_edges, send_nodes], axis=-2)
-      recv_edges = jnp.concatenate([recv_edges, recv_nodes], axis=-2)
-      
+      x = jnp.concatenate([x, send_nodes + recv_nodes], axis=-2)
 
     ############################
     # Attention
     ############################
-    x = mish(send_edges + recv_edges)
+    x = mish(x)
     x = rearrange(x, '... (h d) -> ... h d', h=self.num_heads)
     a = self.param(
         'a',
