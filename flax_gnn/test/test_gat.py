@@ -29,6 +29,7 @@ def test():
           add_self_edges=True,
           share_weights=False,
       )(**graph)
+      graph['node_features'] = jax.nn.relu(graph['node_features'])
 
       graph = GATv2(
           embed_dim=2,
