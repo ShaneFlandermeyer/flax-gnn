@@ -34,23 +34,16 @@ class GATv2(nn.Module):
     ############################
     # Pre-processing
     ############################
+    input_graph = dict(
+        node_features=node_features,
+        edge_features=edge_features,
+        global_features=global_features,
+        senders=senders,
+        receivers=receivers,
+    )
     num_nodes = node_features.shape[-2]
     num_edges = senders.shape[-1]
     leading_dims = node_features.shape[:-2]
-
-    if self.add_self_edges:
-      num_edges += num_nodes
-      node_inds = jnp.arange(num_nodes)
-      node_inds = jnp.broadcast_to(node_inds, leading_dims + (num_nodes,))
-      senders = jnp.concatenate([senders, node_inds], axis=-1)
-      receivers = jnp.concatenate([receivers, node_inds], axis=-1)
-      if edge_features is not None:
-        self_edge_features = jnp.zeros(
-            (*node_inds.shape, edge_features.shape[-1])
-        )
-        edge_features = jnp.concatenate(
-            [edge_features, self_edge_features], axis=-2
-        )
 
     segment_softmax = jraph.segment_softmax
     segment_sum = jax.ops.segment_sum
@@ -61,6 +54,18 @@ class GATv2(nn.Module):
     ############################
     # Edge update
     ############################
+    if self.share_weights:
+      W = nn.Dense(self.embed_dim, name='W', kernel_init=self.kernel_init)
+      send_nodes = recv_nodes = W(node_features)
+    else:
+      W_s = nn.Dense(self.embed_dim, name='W_s', kernel_init=self.kernel_init)
+      W_r = nn.Dense(self.embed_dim, name='W_r', kernel_init=self.kernel_init)
+      send_nodes = W_s(node_features)
+      recv_nodes = W_r(node_features)
+    send_edges = jnp.take_along_axis(send_nodes, senders[..., None], axis=-2)
+    recv_edges = jnp.take_along_axis(recv_nodes, receivers[..., None], axis=-2)
+
+
     if edge_features is not None or global_features is not None:
       if edge_features is None:
         edge_features = global_features.repeat(num_edges, axis=-2)
@@ -68,31 +73,22 @@ class GATv2(nn.Module):
         edge_features = jnp.concatenate(
             [edge_features, global_features.repeat(num_edges, axis=-2)], axis=-1
         )
-
-    if self.share_weights:
-      W = nn.Dense(self.embed_dim, name='W', kernel_init=self.kernel_init)
-      nodes = W(node_features)
-      send_nodes = jnp.take_along_axis(nodes, senders[..., None], axis=-2)
-      recv_nodes = jnp.take_along_axis(nodes, receivers[..., None], axis=-2)
-    else:
-      W_s = nn.Dense(self.embed_dim, name='W_s', kernel_init=self.kernel_init)
-      W_r = nn.Dense(self.embed_dim, name='W_r', kernel_init=self.kernel_init)
-      send_nodes = jnp.take_along_axis(
-          W_s(node_features), senders[..., None], axis=-2
-      )
-      recv_nodes = jnp.take_along_axis(
-          W_r(node_features), receivers[..., None], axis=-2
-      )
-    x = send_nodes + recv_nodes
-
-    if edge_features is not None:
       W_e = nn.Dense(self.embed_dim, name='W_e', kernel_init=self.kernel_init)
       x += W_e(edge_features)
-    x = mish(x)
+
+    if self.add_self_edges:
+      node_inds = jnp.broadcast_to(
+          jnp.arange(num_nodes), leading_dims + (num_nodes,)
+      )
+      receivers = jnp.concatenate([receivers, node_inds], axis=-1)
+      send_edges = jnp.concatenate([send_edges, send_nodes], axis=-2)
+      recv_edges = jnp.concatenate([recv_edges, recv_nodes], axis=-2)
+      
 
     ############################
     # Attention
     ############################
+    x = mish(send_edges + recv_edges)
     x = rearrange(x, '... (h d) -> ... h d', h=self.num_heads)
     a = self.param(
         'a',
@@ -107,7 +103,7 @@ class GATv2(nn.Module):
     # Node Update
     ############################
     edges = rearrange(
-        send_nodes, '... (h d) -> ... h d', h=self.num_heads
+        send_edges, '... (h d) -> ... h d', h=self.num_heads
     )
     edges = jnp.nan_to_num(attn_weights * edges)
     edges = rearrange(edges, '... h d -> ... (h d)')
@@ -115,31 +111,8 @@ class GATv2(nn.Module):
 
     return dict(
         node_features=new_nodes,
-        edge_features=edge_features,
-        global_features=global_features,
-        senders=senders,
-        receivers=receivers,
+        edge_features=input_graph['edge_features'],
+        global_features=input_graph['global_features'],
+        senders=input_graph['senders'],
+        receivers=input_graph['receivers'],
     )
-
-
-if __name__ == '__main__':
-  from flax_gnn.test.util import build_toy_graph
-
-  graph = build_toy_graph()
-  graph = dict(
-      node_features=graph.nodes,
-      edge_features=graph.edges,
-      global_features=graph.globals,
-      senders=graph.senders,
-      receivers=graph.receivers
-  )
-  model = GATv2(embed_dim=8, num_heads=2, share_weights=True)
-  params = model.init(jax.random.PRNGKey(42), **graph)
-
-  apply = jax.jit(model.apply)
-  start = time.time()
-  decoded_graph = apply(params, **graph)
-  print(time.time() - start)
-  start = time.time()
-  decoded_graph = apply(params, **graph)
-  print(time.time() - start)

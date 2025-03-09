@@ -25,7 +25,7 @@ def test():
 
       graph = GATv2(
           embed_dim=8,
-          num_heads=1,
+          num_heads=2,
           add_self_edges=True,
           share_weights=False,
       )(**graph)
@@ -90,5 +90,5 @@ def test():
 
 
 if __name__ == '__main__':
-  # test()
+  test()
   pytest.main([__file__])
