@@ -101,7 +101,8 @@ class GATv2(nn.Module):
     # Node Update
     ############################
     edges = rearrange(send_edges, '... (h d) -> ... h d', h=self.num_heads)
-    edges = rearrange(attn_weights * edges, '... h d -> ... (h d)')
+    edges = attn_weights * edges
+    edges = rearrange(edges, '... h d -> ... (h d)')
     new_nodes = segment_sum(edges, receivers, num_nodes)
 
     return dict(

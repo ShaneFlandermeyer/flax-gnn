@@ -370,7 +370,7 @@ def segment_softmax(logits: jnp.ndarray,
   normalizers = segment_sum(logits, segment_ids, num_segments,
                             indices_are_sorted, unique_indices)
   normalizers = normalizers[segment_ids]
-  softmax = logits / (normalizers)
+  softmax = logits / (normalizers + jnp.finfo(logits).eps)
   return softmax
 
 

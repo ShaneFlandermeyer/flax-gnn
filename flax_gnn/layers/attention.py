@@ -13,7 +13,8 @@ class AttentionBlock(nn.Module):
   hidden_dim: int
   num_heads: int
   norm_qk: bool = True
-  kernel_init: nn.initializers.Initializer = nn.initializers.xavier_uniform()
+  use_ffn: bool = False
+  kernel_init: nn.initializers.Initializer = nn.initializers.xavier_normal()
   dtype: jnp.dtype = jnp.float32
 
   @nn.compact
@@ -38,18 +39,19 @@ class AttentionBlock(nn.Module):
     x = query + mha(inputs_q=query, inputs_kv=key, mask=mask)
 
     # FFN
-    ffn = nn.Sequential([
-        nn.LayerNorm(),
-        nn.Dense(
-            self.hidden_dim, kernel_init=self.kernel_init, dtype=self.dtype
-        ),
-        mish,
-        nn.Dense(
-            self.embed_dim, kernel_init=self.kernel_init, dtype=self.dtype
-        ),
-    ], name='ffn')
+    if self.use_ffn:
+      ffn = nn.Sequential([
+          nn.LayerNorm(),
+          nn.Dense(
+              self.hidden_dim, kernel_init=self.kernel_init, dtype=self.dtype
+          ),
+          mish,
+          nn.Dense(
+              self.embed_dim, kernel_init=self.kernel_init, dtype=self.dtype
+          ),
+      ], name='ffn')
 
-    x = x + ffn(x)
+      x = x + ffn(x)
 
     return x
 
