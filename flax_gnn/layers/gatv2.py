@@ -1,8 +1,7 @@
 import time
 from typing import Optional, Tuple
 import flax.linen as nn
-import jraph
-from flax_gnn.util import add_self_edges
+import flax_gnn.util
 import jax
 import jax.numpy as jnp
 from einops import rearrange
@@ -45,8 +44,8 @@ class GATv2(nn.Module):
     num_edges = senders.shape[-1]
     leading_dims = node_features.shape[:-2]
 
-    segment_softmax = jraph.segment_softmax
-    segment_sum = jax.ops.segment_sum
+    segment_softmax = flax_gnn.util.segment_softmax
+    segment_sum = flax_gnn.util.segment_sum
     for _ in range(len(leading_dims)):
       segment_softmax = jax.vmap(segment_softmax, in_axes=(0, 0, None))
       segment_sum = jax.vmap(segment_sum, in_axes=(0, 0, None))
@@ -101,11 +100,8 @@ class GATv2(nn.Module):
     ############################
     # Node Update
     ############################
-    edges = rearrange(
-        send_edges, '... (h d) -> ... h d', h=self.num_heads
-    )
-    edges = jnp.nan_to_num(attn_weights * edges)
-    edges = rearrange(edges, '... h d -> ... (h d)')
+    edges = rearrange(send_edges, '... (h d) -> ... h d', h=self.num_heads)
+    edges = rearrange(attn_weights * edges, '... h d -> ... (h d)')
     new_nodes = segment_sum(edges, receivers, num_nodes)
 
     return dict(
