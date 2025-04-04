@@ -13,7 +13,7 @@ class AttentionBlock(nn.Module):
   hidden_dim: int
   num_heads: int
   norm_qk: bool = True
-  use_ffn: bool = False
+  use_ffn: bool = True
   kernel_init: nn.initializers.Initializer = nn.initializers.xavier_normal()
   dtype: jnp.dtype = jnp.float32
 
@@ -62,7 +62,11 @@ class PMA(nn.Module):
   seed_init: nn.initializers.Initializer = nn.initializers.xavier_normal()
 
   @nn.compact
-  def __call__(self, x: jax.Array, valid: jax.Array = None):
+  def __call__(
+      self,
+      x: jax.Array,
+      valid: jax.Array = None,
+  ):
     batch_dims, embed_dim = x.shape[:-2], x.shape[-1]
 
     S = self.param('S', self.seed_init, (self.num_seeds, embed_dim))
