@@ -57,23 +57,18 @@ class GATv2(nn.Module):
       W = nn.Dense(self.embed_dim, name='W', kernel_init=self.kernel_init)
       send_nodes = recv_nodes = W(node_features)
     else:
-      W_s = nn.Dense(self.embed_dim, name='W_s', kernel_init=self.kernel_init)
-      W_r = nn.Dense(self.embed_dim, name='W_r', kernel_init=self.kernel_init)
-      send_nodes = W_s(node_features)
-      recv_nodes = W_r(node_features)
+      W = nn.Dense(2*self.embed_dim, name='W', kernel_init=self.kernel_init)
+      send_nodes, recv_nodes = jnp.split(W(node_features), 2, axis=-1)
     send_edges = jnp.take_along_axis(send_nodes, senders[..., None], axis=-2)
     recv_edges = jnp.take_along_axis(recv_nodes, receivers[..., None], axis=-2)
     x = send_edges + recv_edges
 
-    if edge_features is not None or global_features is not None:
-      if edge_features is None:
-        edge_features = global_features.repeat(num_edges, axis=-2)
-      elif edge_features is not None and global_features is not None:
-        edge_features = jnp.concatenate(
-            [edge_features, global_features.repeat(num_edges, axis=-2)], axis=-1
-        )
+    if edge_features is not None:
       W_e = nn.Dense(self.embed_dim, name='W_e', kernel_init=self.kernel_init)
       x += W_e(edge_features)
+    if global_features is not None:
+      W_g = nn.Dense(self.embed_dim, name='W_g', kernel_init=self.kernel_init)
+      x += W_g(global_features)
 
     if self.add_self_edges:
       node_inds = jnp.broadcast_to(

@@ -25,18 +25,18 @@ def test():
 
       graph = GATv2(
           embed_dim=8,
-          num_heads=2,
+          num_heads=1,
           add_self_edges=True,
           share_weights=False,
       )(**graph)
-      graph['node_features'] = jax.nn.relu(graph['node_features'])
-
+      graph['node_features'] = jax.nn.leaky_relu(graph['node_features'])
       graph = GATv2(
-          embed_dim=2,
+          embed_dim=8,
           num_heads=1,
           add_self_edges=True,
           share_weights=True,
       )(**graph)
+      graph['node_features'] = nn.Dense(2)(graph['node_features'])
 
       return graph
 
@@ -83,7 +83,7 @@ def test():
     print("Training time: ", time.time() - start)
     return predict(params), accuracy(params).item()
 
-  for i in range(5):
+  for i in range(50):
     model = Model()
     club, accuracy = optimize_club(model, num_steps=15, seed=i)
     print(accuracy)
