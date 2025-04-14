@@ -1,66 +1,72 @@
 import time
-from typing import Optional, Tuple
+from typing import *
 import flax.linen as nn
-from flax_gnn.util import add_self_edges
 import jax
 import jax.numpy as jnp
 from einops import rearrange
 from flax_gnn.layers.activations import mish
-from typing import Optional, Tuple
-import jraph
+
+
 class GIN(nn.Module):
   mlp: nn.Module
   epsilon: Optional[float] = None
+  kernel_init: Callable = nn.initializers.xavier_normal()
 
   @nn.compact
   def __call__(self,
-               nodes: jax.Array,
-               edges: jax.Array,
-               global_attributes: jax.Array,
+               node_features: jax.Array,
+               edge_features: jax.Array,
+               global_features: jax.Array,
                senders: jax.Array,
                receivers: jax.Array
                ) -> jax.Array:
-    num_nodes = nodes.shape[-2]
+    ############################
+    # Pre-processing
+    ############################
+    num_nodes = node_features.shape[-2]
     num_edges = senders.shape[-1]
+    leading_dims = node_features.shape[:-2]
 
-    sent_attributes = jnp.take_along_axis(nodes, senders[..., None], axis=-2)
-    received_attributes = jnp.take_along_axis(
-        nodes, receivers[..., None], axis=-2
-    )
+    segment_sum = jax.ops.segment_sum
+    for _ in range(len(leading_dims)):
+      segment_sum = jax.vmap(segment_sum, in_axes=(0, 0, None))
 
     ####################################
     # Edge update
     ####################################
-    if edges is not None:
-      embed_dim = sent_attributes.shape[-1]
-      W_e = nn.Dense(embed_dim, name='W_e')
-      edges = mish(sent_attributes + W_e(edges))
-    else:
-      edges = sent_attributes
-
-    ####################################
-    # Aggregate edges
-    ####################################
-    leading_dims = nodes.shape[:-2]
-    edge_aggr = jax.ops.segment_sum
-    for _ in range(len(leading_dims)):
-      edge_aggr = jax.vmap(edge_aggr, in_axes=(0, 0, None))
-    received_attributes = edge_aggr(edges, receivers, num_nodes)
+    send_edges = jnp.take_along_axis(
+        node_features, senders[..., None], axis=-2
+    )
+    if edge_features is not None:
+      W_e = nn.Dense(
+          node_features.shape[-1], name='W_e', kernel_init=self.kernel_init
+      )
+      send_edges = mish(send_edges + W_e(edge_features))
 
     ####################################
     # Node update
     ####################################
+    if global_features is not None:
+      W_g = nn.Dense(
+          node_features.shape[-1], name='W_g', kernel_init=self.kernel_init
+      )
+      node_features = mish(node_features + W_g(global_features))
+
     if self.epsilon is None:
       epsilon = self.param('epsilon', nn.initializers.zeros, (1, 1))
     else:
       epsilon = self.epsilon
-    epsilon = jnp.tile(epsilon, (*nodes.shape[:-2], 1, 1))
-    nodes = (1 + epsilon) * nodes + received_attributes
+    epsilon = jnp.tile(epsilon, (*node_features.shape[:-2], 1, 1))
 
-    if global_attributes is not None:
-      global_node_attributes = global_attributes.repeat(num_nodes, axis=-2)
-      nodes = jnp.concatenate([nodes, global_node_attributes], axis=-1)
+    new_nodes = self.mlp(
+        (1 + epsilon) * node_features +
+        segment_sum(send_edges, receivers, num_nodes)
+    )
 
-    nodes = self.mlp(nodes)
-
-    return nodes
+    return dict(
+        node_features=new_nodes,
+        edge_features=edge_features,
+        global_features=global_features,
+        senders=senders,
+        receivers=receivers,
+    )
