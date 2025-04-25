@@ -363,7 +363,6 @@ def segment_softmax(logits: jnp.ndarray,
   maxs = segment_max(logits, segment_ids, num_segments, indices_are_sorted,
                      unique_indices)
   logits = logits - maxs[segment_ids]
-  logits = jnp.where(jnp.isinf(logits), jnp.finfo(logits).min, logits)
   # Then take the exp
   logits = jnp.exp(logits)
   # Then calculate the normalizers
